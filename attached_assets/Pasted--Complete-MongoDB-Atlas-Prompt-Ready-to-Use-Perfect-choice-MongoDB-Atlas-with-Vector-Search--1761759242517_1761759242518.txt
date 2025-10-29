@@ -1,0 +1,1082 @@
+# 🚀 Complete MongoDB Atlas Prompt - Ready to Use
+
+Perfect choice! MongoDB Atlas with Vector Search is powerful and scales great. Copy the prompt below and paste it into your AI coding assistant (Claude, Cursor, etc.):
+
+---
+
+```
+You are an expert full-stack developer. Build a complete, production-ready codebase for a "Second Brain" MVP application using MongoDB Atlas with native vector search capabilities.
+
+## PROJECT OVERVIEW
+
+Build a web application where users can:
+1. Add YouTube videos by pasting URLs
+2. Automatically extract and index video transcripts
+3. Chat with an AI that answers questions using their video knowledge base
+4. Get answers with source citations linking to exact timestamps in videos
+
+## TECH STACK (MUST USE EXACTLY)
+
+- **Framework**: Next.js 14 with App Router and TypeScript
+- **Styling**: Tailwind CSS + shadcn/ui components
+- **Database**: MongoDB Atlas (Free M0 tier - 512MB)
+- **Vector Search**: MongoDB Atlas Vector Search (native)
+- **AI Models**: OpenAI API
+  - Chat: gpt-4o-mini
+  - Embeddings: text-embedding-3-small (1536 dimensions)
+- **Transcript Extraction**: youtube-transcript npm package (no API key needed)
+- **ODM**: Mongoose for MongoDB
+- **Deployment**: Vercel-ready
+- **Type Safety**: TypeScript strict mode + Zod validation
+
+## PROJECT STRUCTURE
+
+```
+second-brain/
+├── app/
+│   ├── api/
+│   │   ├── import-video/
+│   │   │   └── route.ts          # POST: Import YouTube video
+│   │   ├── chat/
+│   │   │   └── route.ts          # POST: Chat with RAG
+│   │   └── videos/
+│   │       └── route.ts          # GET: List all videos (optional)
+│   ├── layout.tsx                # Root layout with metadata
+│   ├── page.tsx                  # Main UI (video input + chat)
+│   └── globals.css               # Tailwind + custom styles
+├── components/
+│   ├── ui/                       # shadcn/ui components (auto-generated)
+│   │   ├── button.tsx
+│   │   ├── input.tsx
+│   │   ├── textarea.tsx
+│   │   ├── card.tsx
+│   │   ├── toast.tsx
+│   │   ├── toaster.tsx
+│   │   └── use-toast.ts
+│   ├── video-input.tsx           # Video URL input component
+│   ├── chat-interface.tsx        # Chat UI with message list
+│   └── source-citation.tsx       # Clickable source links
+├── lib/
+│   ├── mongodb.ts                # MongoDB connection with caching
+│   ├── models/
+│   │   ├── Video.ts              # Video schema & model
+│   │   └── Chunk.ts              # Chunk schema & model
+│   ├── openai.ts                 # OpenAI client & helpers
+│   ├── chunking.ts               # Text chunking algorithm
+│   ├── youtube.ts                # YouTube URL parsing & validation
+│   └── utils.ts                  # Utility functions (timestamp formatting)
+├── types/
+│   └── index.ts                  # TypeScript interfaces & types
+├── .env.local.example            # Environment variables template
+├── .gitignore
+├── package.json
+├── tsconfig.json
+├── tailwind.config.ts
+├── next.config.js
+├── components.json               # shadcn/ui config
+└── README.md                     # Complete setup guide
+```
+
+## MONGODB ATLAS SETUP
+
+### Collections
+
+1. **videos** - Stores video metadata
+2. **chunks** - Stores transcript chunks with embeddings
+
+### Atlas Vector Search Index
+
+**CRITICAL**: This index must be created manually in MongoDB Atlas UI
+
+**Collection**: `chunks`
+**Index Name**: `vector_index`
+
+```json
+{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 1536,
+      "similarity": "cosine"
+    },
+    {
+      "type": "filter",
+      "path": "video_id"
+    }
+  ]
+}
+```
+
+**Instructions for README**:
+1. Go to MongoDB Atlas → Database → Browse Collections
+2. Select your cluster → Click "Search Indexes" tab
+3. Click "Create Search Index"
+4. Choose "JSON Editor"
+5. Select database: `second-brain`, collection: `chunks`
+6. Paste the JSON above
+7. Name it exactly: `vector_index`
+8. Click "Create Search Index"
+9. Wait 2-5 minutes for index to build (status: "Active")
+
+## DATABASE MODELS
+
+### lib/models/Video.ts
+
+```typescript
+import mongoose, { Schema, Document, Model } from 'mongoose';
+
+export interface IVideo extends Document {
+  youtube_id: string;
+  title: string;
+  channel_name?: string;
+  thumbnail_url?: string;
+  transcript: string;
+  duration?: number;
+  created_at: Date;
+}
+
+const VideoSchema = new Schema<IVideo>({
+  youtube_id: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true,
+  },
+  title: {
+    type: String,
+    required: true,
+  },
+  channel_name: {
+    type: String,
+  },
+  thumbnail_url: {
+    type: String,
+  },
+  transcript: {
+    type: String,
+    required: true,
+  },
+  duration: {
+    type: Number,
+  },
+  created_at: {
+    type: Date,
+    default: Date.now,
+    index: true,
+  },
+});
+
+// Prevent model recompilation in Next.js hot reload
+const Video: Model<IVideo> = mongoose.models.Video || mongoose.model<IVideo>('Video', VideoSchema);
+
+export default Video;
+```
+
+### lib/models/Chunk.ts
+
+```typescript
+import mongoose, { Schema, Document, Model, Types } from 'mongoose';
+
+export interface IChunk extends Document {
+  video_id: Types.ObjectId;
+  content: string;
+  embedding: number[];
+  start_time: number;
+  chunk_index: number;
+  created_at: Date;
+}
+
+const ChunkSchema = new Schema<IChunk>({
+  video_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'Video',
+    required: true,
+    index: true,
+  },
+  content: {
+    type: String,
+    required: true,
+  },
+  embedding: {
+    type: [Number],
+    required: true,
+  },
+  start_time: {
+    type: Number,
+    required: true,
+  },
+  chunk_index: {
+    type: Number,
+    required: true,
+  },
+  created_at: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Compound index for efficient queries
+ChunkSchema.index({ video_id: 1, chunk_index: 1 });
+
+const Chunk: Model<IChunk> = mongoose.models.Chunk || mongoose.model<IChunk>('Chunk', ChunkSchema);
+
+export default Chunk;
+```
+
+## MONGODB CONNECTION (lib/mongodb.ts)
+
+**CRITICAL**: Implement connection caching for Next.js serverless
+
+```typescript
+import mongoose from 'mongoose';
+
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  throw new Error(
+    'Please define the MONGODB_URI environment variable inside .env.local'
+  );
+}
+
+/**
+ * Global is used here to maintain a cached connection across hot reloads
+ * in development. This prevents connections growing exponentially
+ * during API Route usage.
+ */
+declare global {
+  var mongoose: {
+    conn: typeof mongoose | null;
+    promise: Promise<typeof mongoose> | null;
+  };
+}
+
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
+async function connectDB() {
+  if (cached.conn) {
+    return cached.conn;
+  }
+
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false,
+    };
+
+    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongoose) => {
+      console.log('✅ MongoDB connected');
+      return mongoose;
+    });
+  }
+
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
+  }
+
+  return cached.conn;
+}
+
+export default connectDB;
+```
+
+## ENVIRONMENT VARIABLES
+
+### .env.local.example
+
+```bash
+# MongoDB Atlas Connection String
+# Format: mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>?retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/second-brain?retryWrites=true&w=majority
+
+# OpenAI API Key
+# Get from: https://platform.openai.com/api-keys
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Next.js
+NODE_ENV=development
+```
+
+## CORE API ROUTES
+
+### app/api/import-video/route.ts
+
+**Requirements:**
+1. Accept POST with JSON body: `{ youtubeUrl: string }`
+2. Validate URL format using helper function
+3. Extract YouTube video ID
+4. Check for duplicates: `await Video.findOne({ youtube_id })`
+5. If exists, return 400: `{ error: "Video already added" }`
+6. Fetch transcript using `youtube-transcript` package
+7. Handle errors: no captions, private video, invalid ID
+8. Extract metadata or use defaults:
+   - Title: Parse from YouTube or use placeholder
+   - Channel: Parse or leave empty
+   - Duration: Calculate from transcript timestamps
+   - Thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+9. Create Video document in MongoDB
+10. Chunk transcript (call chunking helper)
+11. Generate embeddings for all chunks (batch processing)
+12. Insert chunks with `await Chunk.insertMany(chunksData)`
+13. Return success: `{ success: true, videoId: video._id }`
+14. Error handling: try-catch with specific error messages
+
+**Error Responses:**
+- 400: Invalid URL, duplicate video, no captions
+- 500: Database errors, OpenAI API errors, unexpected errors
+
+### app/api/chat/route.ts
+
+**Requirements:**
+1. Accept POST with JSON body: `{ message: string }`
+2. Validate message is not empty
+3. Generate embedding for user question
+4. Perform MongoDB Atlas Vector Search using aggregation:
+
+```typescript
+const results = await Chunk.aggregate([
+  {
+    $vectorSearch: {
+      index: "vector_index",
+      path: "embedding",
+      queryVector: questionEmbedding,
+      numCandidates: 50,
+      limit: 8,
+    },
+  },
+  {
+    $addFields: {
+      score: { $meta: "vectorSearchScore" }
+    }
+  },
+  {
+    $match: {
+      score: { $gte: 0.7 }  // Similarity threshold
+    }
+  },
+  {
+    $lookup: {
+      from: "videos",
+      localField: "video_id",
+      foreignField: "_id",
+      as: "video",
+    },
+  },
+  {
+    $unwind: "$video",
+  },
+  {
+    $project: {
+      content: 1,
+      start_time: 1,
+      score: 1,
+      video_title: "$video.title",
+      video_youtube_id: "$video.youtube_id",
+      video_channel: "$video.channel_name",
+    },
+  },
+]);
+```
+
+5. If no results, return: `{ answer: "I couldn't find...", sources: [] }`
+6. Build context from top chunks (format with video title + timestamp)
+7. Create system prompt with instructions + context
+8. Call OpenAI Chat Completion API (gpt-4o-mini)
+9. Extract answer from response
+10. Format top 3 sources with clickable YouTube URLs
+11. Return: `{ answer: string, sources: Source[] }`
+
+**Context Format:**
+```
+[Video Title - 5:42]
+Chunk content here...
+
+---
+
+[Another Video - 12:08]
+More content...
+```
+
+**System Prompt Template:**
+```
+You are a helpful AI assistant with access to a knowledge base of YouTube video transcripts.
+
+INSTRUCTIONS:
+1. Answer questions using ONLY the information in the provided context
+2. If the context doesn't contain the answer, say "I don't have information about that in the knowledge base"
+3. Cite sources naturally in your answer using the format: [Video Title - Timestamp]
+4. Be conversational and concise
+5. Do not make up information
+
+CONTEXT:
+{assembled_context_here}
+```
+
+## HELPER FUNCTIONS
+
+### lib/youtube.ts
+
+```typescript
+export function extractVideoId(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /^([a-zA-Z0-9_-]{11})$/,  // Raw video ID
+  ];
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+export function isValidYoutubeUrl(url: string): boolean {
+  return extractVideoId(url) !== null;
+}
+
+export function getYoutubeThumbnail(videoId: string): string {
+  return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+}
+
+export function getYoutubeUrl(videoId: string, timestamp?: number): string {
+  const base = `https://youtube.com/watch?v=${videoId}`;
+  return timestamp ? `${base}&t=${Math.floor(timestamp)}s` : base;
+}
+```
+
+### lib/chunking.ts
+
+```typescript
+export interface TranscriptSegment {
+  text: string;
+  offset: number;  // milliseconds
+  duration: number;
+}
+
+export interface ChunkData {
+  video_id: string;
+  content: string;
+  start_time: number;  // seconds
+  chunk_index: number;
+}
+
+export function createChunks(
+  transcript: TranscriptSegment[],
+  videoId: string
+): ChunkData[] {
+  const CHUNK_SIZE = 1200;  // characters
+  const OVERLAP = 200;      // characters
+
+  const chunks: ChunkData[] = [];
+  let currentChunk = '';
+  let chunkStartTime = 0;
+  let chunkIndex = 0;
+
+  for (let i = 0; i < transcript.length; i++) {
+    const segment = transcript[i];
+    const segmentText = segment.text.trim();
+
+    // Start new chunk
+    if (currentChunk === '') {
+      chunkStartTime = segment.offset / 1000;  // Convert ms to seconds
+    }
+
+    // Check if adding this segment exceeds chunk size
+    if (currentChunk.length + segmentText.length + 1 > CHUNK_SIZE && currentChunk.length > 0) {
+      // Save current chunk
+      chunks.push({
+        video_id: videoId,
+        content: currentChunk.trim(),
+        start_time: chunkStartTime,
+        chunk_index: chunkIndex++,
+      });
+
+      // Start new chunk with overlap
+      const overlapText = currentChunk.slice(-OVERLAP);
+      currentChunk = overlapText + ' ' + segmentText;
+      chunkStartTime = segment.offset / 1000;
+    } else {
+      // Add to current chunk
+      currentChunk += (currentChunk ? ' ' : '') + segmentText;
+    }
+  }
+
+  // Add final chunk
+  if (currentChunk.trim()) {
+    chunks.push({
+      video_id: videoId,
+      content: currentChunk.trim(),
+      start_time: chunkStartTime,
+      chunk_index: chunkIndex,
+    });
+  }
+
+  return chunks;
+}
+```
+
+### lib/openai.ts
+
+```typescript
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const response = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: text,
+  });
+
+  return response.data[0].embedding;
+}
+
+export async function generateEmbeddingsBatch(
+  texts: string[]
+): Promise<number[][]> {
+  const response = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: texts,
+  });
+
+  return response.data.map((item) => item.embedding);
+}
+
+export async function chatCompletion(
+  messages: Array<{ role: string; content: string }>,
+  options?: {
+    temperature?: number;
+    max_tokens?: number;
+  }
+) {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: messages as any,
+    temperature: options?.temperature ?? 0.7,
+    max_tokens: options?.max_tokens ?? 800,
+  });
+
+  return response.choices[0].message.content;
+}
+
+export default openai;
+```
+
+### lib/utils.ts
+
+```typescript
+export function formatTimestamp(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+export function cn(...classes: (string | undefined | null | false)[]): string {
+  return classes.filter(Boolean).join(' ');
+}
+```
+
+## TYPESCRIPT TYPES (types/index.ts)
+
+```typescript
+export interface Video {
+  _id: string;
+  youtube_id: string;
+  title: string;
+  channel_name?: string;
+  thumbnail_url?: string;
+  transcript?: string;
+  duration?: number;
+  created_at: Date;
+}
+
+export interface Chunk {
+  _id: string;
+  video_id: string;
+  content: string;
+  embedding: number[];
+  start_time: number;
+  chunk_index: number;
+  created_at: Date;
+}
+
+export interface TranscriptSegment {
+  text: string;
+  offset: number;
+  duration: number;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: Source[];
+}
+
+export interface Source {
+  title: string;
+  timestamp: string;
+  url: string;
+  channel?: string;
+}
+
+export interface ApiResponse<T = any> {
+  success?: boolean;
+  data?: T;
+  error?: string;
+}
+```
+
+## FRONTEND COMPONENTS
+
+### app/page.tsx
+
+**Requirements:**
+- Two main sections: Video Input (top) + Chat Interface (bottom)
+- Use "use client" directive
+- State management with useState for:
+  - videoUrl (input value)
+  - messages (chat history)
+  - loading states
+- Video Input Section:
+  - Text input with placeholder "Paste YouTube URL..."
+  - "Add Video" button
+  - Loading state during import
+  - Toast notifications for success/errors
+  - Clear input after success
+- Chat Section:
+  - Scrollable message container (max-height with overflow)
+  - User messages: right-aligned, blue-50 background
+  - AI messages: left-aligned, gray-50 background
+  - Sources displayed below AI messages
+  - Text area for new messages
+  - "Send" button
+  - Enter key to send (Shift+Enter for new line)
+  - Auto-scroll to bottom on new messages
+  - Empty state: "Add a video to start chatting"
+- Responsive design: stack vertically on mobile
+- Use shadcn/ui components
+
+### components/video-input.tsx
+
+**Props:**
+- onVideoAdded: () => void callback
+
+**Features:**
+- Controlled input component
+- Form submission handling
+- Client-side URL validation before API call
+- Loading spinner during import
+- Error display
+- Success feedback
+
+### components/chat-interface.tsx
+
+**Props:**
+- messages: ChatMessage[]
+- onSendMessage: (message: string) => Promise<void>
+- isLoading: boolean
+
+**Features:**
+- Message list with scroll container
+- Message bubbles with different styles for user/assistant
+- Source citations component integration
+- Input form at bottom
+- Auto-scroll to latest message
+- Disabled input while loading
+
+### components/source-citation.tsx
+
+**Props:**
+- sources: Source[]
+
+**Features:**
+- Display up to 3 sources
+- Clickable links (open in new tab)
+- Format: "🎬 Video Title (5:42)"
+- Hover effects
+- Truncate long titles
+- Show channel name if available
+
+## PACKAGE.JSON
+
+```json
+{
+  "name": "second-brain",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "mongoose": "^8.5.0",
+    "openai": "^4.52.0",
+    "youtube-transcript": "^1.2.1",
+    "zod": "^3.23.8",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.400.0",
+    "tailwind-merge": "^2.4.0",
+    "sonner": "^1.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3",
+    "@types/node": "^20.14.10",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.4",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.5"
+  }
+}
+```
+
+## SHADCN/UI SETUP
+
+Initialize with:
+```bash
+npx shadcn-ui@latest init
+```
+
+Add components:
+```bash
+npx shadcn-ui@latest add button input textarea card toast
+```
+
+**components.json** configuration:
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "app/globals.css",
+    "baseColor": "slate",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils"
+  }
+}
+```
+
+## README.md STRUCTURE
+
+Include these sections:
+
+### 1. Project Overview
+- Brief description
+- Key features
+- Tech stack
+
+### 2. Prerequisites
+- Node.js 18+
+- MongoDB Atlas account (free)
+- OpenAI API key
+
+### 3. MongoDB Atlas Setup (Detailed)
+Step-by-step with:
+- Create free cluster
+- Database access (username/password)
+- Network access (allow all IPs for dev: 0.0.0.0/0)
+- Get connection string
+- Create vector search index (detailed instructions)
+- Verify index is active
+
+### 4. Local Development Setup
+```bash
+# Clone repository
+git clone <repo-url>
+cd second-brain
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.local.example .env.local
+# Edit .env.local with your credentials
+
+# Run development server
+npm run dev
+```
+
+### 5. Environment Variables
+Explain each variable with examples
+
+### 6. Usage Instructions
+- How to add videos
+- How to chat
+- What to expect
+
+### 7. Architecture Overview
+- Flow diagram (text-based)
+- Key components
+- How RAG works
+
+### 8. Troubleshooting
+Common issues:
+- MongoDB connection failed
+- Vector search returns no results (index not active)
+- OpenAI rate limits
+- YouTube transcript unavailable
+- Network errors
+
+### 9. Deployment (Vercel)
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel
+
+# Add environment variables in Vercel dashboard
+```
+
+### 10. Cost Estimation
+- MongoDB Atlas: Free (M0 tier)
+- OpenAI: ~$5-10/month
+- Vercel: Free tier
+- Total: ~$5-10/month
+
+## ERROR HANDLING
+
+### MongoDB-Specific Errors
+
+1. **E11000 Duplicate Key**
+   - Message: "Video already added"
+   - Status: 400
+
+2. **Connection Timeout**
+   - Retry once
+   - Message: "Database connection failed"
+   - Status: 503
+
+3. **Vector Index Not Found**
+   - Check index exists and is active
+   - Message: "Search index not configured"
+   - Log: Instructions to create index
+
+### OpenAI Errors
+
+1. **Rate Limit (429)**
+   - Exponential backoff retry
+   - Max 3 retries
+   - Message: "Service temporarily busy"
+
+2. **API Key Invalid (401)**
+   - Don't retry
+   - Message: "Configuration error"
+   - Log: Check API key
+
+### YouTube Errors
+
+1. **No Captions Available**
+   - Message: "This video doesn't have captions"
+   - Status: 400
+
+2. **Private/Restricted Video**
+   - Message: "Cannot access this video"
+   - Status: 400
+
+## CODE QUALITY
+
+1. **TypeScript Strict Mode**: Enable in tsconfig.json
+2. **No `any` types**: Use proper interfaces
+3. **Error Boundaries**: Wrap components in error boundaries
+4. **Input Validation**: Zod schemas for API inputs
+5. **Loading States**: Every async action has loading UI
+6. **Optimistic Updates**: Update UI before API confirms (where appropriate)
+7. **Accessibility**: ARIA labels, keyboard navigation
+8. **Performance**: 
+   - Use React.memo for expensive components
+   - Lazy load when possible
+   - Batch API calls
+9. **Security**:
+   - Validate all inputs
+   - Sanitize user content
+   - Never expose secrets to client
+   - Use HTTPS in production
+
+## TESTING CHECKLIST
+
+Before considering MVP complete:
+
+- [ ] Add video with captions → Success
+- [ ] Add video without captions → Clear error
+- [ ] Add duplicate video → Duplicate error message
+- [ ] Add invalid URL → Validation error
+- [ ] Add private video → Access error
+- [ ] Chat with 0 videos → Empty state message
+- [ ] Chat with 1+ videos → Gets relevant answer
+- [ ] Click source link → Opens YouTube at timestamp
+- [ ] Mobile view → UI works properly
+- [ ] Fast typing in chat → Handles gracefully
+- [ ] Network disconnect → Error message
+- [ ] Very long video (2+ hrs) → Processes successfully
+- [ ] Vector search score threshold → Filters irrelevant results
+- [ ] Multiple videos from same creator → Diverse sources
+
+## PERFORMANCE TARGETS
+
+- Video import: < 60 seconds for 30-min video
+- Chat response: < 5 seconds
+- UI remains responsive during processing
+- Vector search: < 200ms
+- Page load: < 2 seconds
+
+## DEPLOYMENT NOTES
+
+### Vercel Environment Variables
+Set in dashboard:
+- MONGODB_URI
+- OPENAI_API_KEY
+- NODE_ENV=production
+
+### MongoDB Atlas
+- Whitelist Vercel IP ranges (or use 0.0.0.0/0 for simplicity)
+- Monitor connection limits on free tier
+- Ensure vector index is active before deploying
+
+### Next.js Config
+```javascript
+// next.config.js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  images: {
+    domains: ['img.youtube.com'],
+  },
+};
+
+module.exports = nextConfig;
+```
+
+## IMPORTANT IMPLEMENTATION NOTES
+
+1. **Vector Search Index**: MUST be created manually in Atlas UI - code cannot create it
+2. **Index Name**: Must be exactly "vector_index" (matches aggregation query)
+3. **Embedding Dimensions**: Must be exactly 1536 (matches text-embedding-3-small)
+4. **Connection Caching**: Essential for Next.js serverless (implemented in lib/mongodb.ts)
+5. **Mongoose Models**: Use `mongoose.models.X || mongoose.model(...)` pattern
+6. **ObjectId**: MongoDB uses ObjectId, not UUID
+7. **Aggregation Pipeline**: Vector search must use $vectorSearch stage
+8. **Score Threshold**: Filter results with score < 0.7 to avoid irrelevant results
+9. **Batch Embeddings**: Process multiple chunks at once for efficiency
+10. **Error Recovery**: Log all errors server-side for debugging
+
+## DELIVERABLES
+
+Generate complete, production-ready code:
+
+1. ✅ All files in project structure
+2. ✅ Mongoose models with proper schemas
+3. ✅ API routes with full error handling
+4. ✅ React components with TypeScript
+5. ✅ Utility functions and helpers
+6. ✅ Environment configuration
+7. ✅ README with detailed setup instructions
+8. ✅ .gitignore with proper exclusions
+9. ✅ TypeScript types and interfaces
+10. ✅ shadcn/ui integration
+
+## START GENERATION
+
+Begin generating the complete codebase now. Create each file with full implementation, proper imports, error handling, and TypeScript types. Make the code production-ready, well-commented, and following Next.js 14 App Router best practices with MongoDB Atlas Vector Search.
+
+Generate files in this order:
+1. Configuration files (package.json, tsconfig.json, etc.)
+2. Database models and connection
+3. Helper functions (lib/)
+4. API routes
+5. React components
+6. Main page
+7. Documentation (README.md)
+
+For each file, include:
+- Complete implementation (no TODOs or placeholders)
+- Proper imports and exports
+- Error handling with try-catch
+- TypeScript types
+- JSDoc comments for complex functions
+- Console logs for debugging (remove in production)
+```
+
+---
+
+## 🎯 Next Steps
+
+1. **Copy the prompt above** ← This is your complete prompt
+2. **Paste into AI assistant** (Claude, Cursor, Windsurf, etc.)
+3. **Wait for generation** (may take 5-10 minutes)
+4. **Follow generated README** for setup
+
+## 📋 After Generation Quick Setup
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Setup MongoDB Atlas
+# - Go to atlas.mongodb.com
+# - Create free M0 cluster
+# - Get connection string
+# - Create vector index (use JSON from prompt)
+
+# 3. Get OpenAI API key
+# - Go to platform.openai.com
+# - Create new API key
+
+# 4. Configure .env.local
+cp .env.local.example .env.local
+# Add your MONGODB_URI and OPENAI_API_KEY
+
+# 5. Run dev server
+npm run dev
+```
+
+## 🔍 What You're Getting
+
+✅ **Complete Next.js 14 app** with TypeScript
+✅ **MongoDB Atlas** with vector search
+✅ **OpenAI integration** for embeddings + chat
+✅ **YouTube transcript** extraction
+✅ **Beautiful UI** with Tailwind + shadcn/ui
+✅ **RAG implementation** for intelligent chat
+✅ **Source citations** with timestamp links
+✅ **Error handling** for all edge cases
+✅ **Mobile responsive** design
+✅ **Production ready** code
+
+**Cost: ~$5-10/month** (just OpenAI, everything else free!)
+
+---
+
+**Ready to build? Copy that prompt and let's go! 🚀**
+
+Any questions about the setup or need clarification on any part?
