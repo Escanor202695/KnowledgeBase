@@ -137,7 +137,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generate embeddings for all chunks
       const chunkTexts = chunks.map(c => c.content);
+      console.log(`  🔢 Generating embeddings for ${chunkTexts.length} chunks...`);
       const embeddings = await generateEmbeddings(chunkTexts);
+      console.log(`  ✅ Generated ${embeddings.length} embeddings (dimension: ${embeddings[0]?.length || 0})`);
 
       // Create chunk documents
       const chunkDocuments = chunks.map((chunk, index) => ({
@@ -148,7 +150,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chunk_index: chunk.chunk_index,
       }));
 
-      await Chunk.insertMany(chunkDocuments);
+      console.log(`  💾 Storing ${chunkDocuments.length} chunks in MongoDB...`);
+      const insertResult = await Chunk.insertMany(chunkDocuments);
+      console.log(`  ✅ Stored ${insertResult.length} chunks successfully`);
 
       console.log(`✅ Imported video ${videoId} with ${chunks.length} chunks`);
 
@@ -181,20 +185,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { message } = validation.data;
 
+      console.log(`💬 Chat question: "${message}"`);
+      
+      // Diagnostic: Check if any chunks exist
+      const totalChunks = await Chunk.countDocuments();
+      console.log(`  📊 Total chunks in database: ${totalChunks}`);
+      
+      if (totalChunks === 0) {
+        return res.json({
+          answer: "I couldn't find any videos in your knowledge base. Please import some YouTube videos first!",
+          sources: [],
+        });
+      }
+      
       // Generate embedding for the question
+      console.log(`  🔢 Generating embedding for question...`);
       const questionEmbedding = await generateEmbedding(message);
+      console.log(`  ✅ Generated query embedding (dimension: ${questionEmbedding.length})`);
 
       // Perform vector search using MongoDB Atlas Vector Search
-      const results = await Chunk.aggregate([
-        {
-          $vectorSearch: {
-            index: "vector_index",
-            path: "embedding",
-            queryVector: questionEmbedding,
-            numCandidates: 50,
-            limit: 8,
+      console.log(`  🔍 Searching vector index for relevant chunks...`);
+      let results;
+      try {
+        results = await Chunk.aggregate([
+          {
+            $vectorSearch: {
+              index: "vector_index",
+              path: "embedding",
+              queryVector: questionEmbedding,
+              numCandidates: 50,
+              limit: 8,
+            },
           },
-        },
         {
           $addFields: {
             score: { $meta: "vectorSearchScore" }
@@ -202,7 +224,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         {
           $match: {
-            score: { $gte: 0.7 }  // Similarity threshold
+            score: { $gte: 0.65 }  // Similarity threshold - balanced between precision and recall
           }
         },
         {
@@ -228,7 +250,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
             video_thumbnail: "$video.thumbnail_url",
           },
         },
-      ]);
+        ]);
+      } catch (vectorError: any) {
+        console.error('❌ Vector search error:', vectorError.message);
+        
+        // Check if it's an index error
+        if (vectorError.message?.includes('vector_index') || 
+            vectorError.message?.includes('index') || 
+            vectorError.message?.includes('$vectorSearch')) {
+          console.error('⚠️  VECTOR INDEX MISSING! Please create it in MongoDB Atlas:');
+          console.error('   1. Go to MongoDB Atlas → Database → Browse Collections');
+          console.error('   2. Click "Search Indexes" tab → "Create Search Index"');
+          console.error('   3. Use JSON Editor, database: second-brain, collection: chunks');
+          console.error('   4. Index name: vector_index');
+          console.error('   5. See replit.md for the full JSON configuration');
+          
+          return res.status(500).json({
+            error: "❌ Vector search index 'vector_index' is not set up in MongoDB Atlas. Please create it following the instructions in replit.md. This is required for the AI chat to work.",
+          });
+        }
+        
+        throw vectorError;
+      }
+
+      console.log(`  ✅ Vector search returned ${results.length} results`);
+      if (results.length > 0) {
+        console.log(`  📊 Top result score: ${results[0].score?.toFixed(4) || 'N/A'}`);
+        console.log(`  📊 Lowest result score: ${results[results.length - 1].score?.toFixed(4) || 'N/A'}`);
+      }
 
       // If no results found
       if (results.length === 0) {
