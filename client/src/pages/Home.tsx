@@ -17,8 +17,8 @@ export default function Home() {
               {/* Import Knowledge Section */}
               <AccordionItem value="import" className="border-0 flex flex-col data-[state=open]:flex-1 min-h-0">
                 <Card className="flex flex-col h-full">
-                  <AccordionTrigger className="hover:no-underline p-0 [&[data-state=open]>div]:border-b flex-shrink-0">
-                    <CardHeader className="hover-elevate flex flex-row items-center justify-between p-4 w-full">
+                  <AccordionTrigger className="hover:no-underline p-0 pr-4 [&[data-state=open]>div]:border-b flex-shrink-0 hover-elevate">
+                    <CardHeader className="flex flex-row items-center justify-between p-4 w-full">
                       <CardTitle className="text-base">Import Knowledge</CardTitle>
                     </CardHeader>
                   </AccordionTrigger>
@@ -35,8 +35,8 @@ export default function Home() {
               {/* Knowledge Base Section */}
               <AccordionItem value="library" className="border-0 flex flex-col data-[state=open]:flex-1 min-h-0">
                 <Card className="flex flex-col h-full">
-                  <AccordionTrigger className="hover:no-underline p-0 [&[data-state=open]>div]:border-b flex-shrink-0">
-                    <CardHeader className="hover-elevate flex flex-row items-center justify-between p-4 w-full">
+                  <AccordionTrigger className="hover:no-underline p-0 pr-4 [&[data-state=open]>div]:border-b flex-shrink-0 hover-elevate">
+                    <CardHeader className="flex flex-row items-center justify-between p-4 w-full">
                       <CardTitle className="text-base">Your Knowledge Base</CardTitle>
                     </CardHeader>
                   </AccordionTrigger>
