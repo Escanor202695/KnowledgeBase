@@ -1,18 +1,14 @@
 import mammoth from 'mammoth';
 import { promises as fs } from 'fs';
+import { PDFParse } from 'pdf-parse';
 
 /**
  * Extract text from PDF file
  */
 export async function extractPdfText(filePath: string): Promise<string> {
   try {
-    // Dynamic import for pdf-parse to handle CommonJS module
-    const pdfParseModule = await import('pdf-parse');
-    // pdf-parse exports the function directly, not as default
-    const pdfParse = pdfParseModule.default || pdfParseModule;
-    
     const dataBuffer = await fs.readFile(filePath);
-    const data = await pdfParse(dataBuffer);
+    const data = await PDFParse(dataBuffer);
     
     if (!data.text || data.text.trim().length === 0) {
       throw new Error('PDF appears to be empty or contains only images (scanned PDF). Please use a text-based PDF or OCR the document first.');
@@ -20,16 +16,14 @@ export async function extractPdfText(filePath: string): Promise<string> {
     
     return data.text;
   } catch (error: any) {
-    // Provide helpful error messages
+    // Provide helpful error messages  
     if (error.message.includes('empty') || error.message.includes('images')) {
       throw error;
     }
-    if (error.message.includes('Invalid PDF')) {
+    if (error.message.includes('Invalid PDF') || error.message.includes('Invalid XRef stream')) {
       throw new Error('Invalid or corrupted PDF file. Please check the file and try again.');
     }
-    if (error.message.includes('not a function')) {
-      throw new Error('PDF parsing library error. Please try a different PDF file.');
-    }
+    console.error('PDF parsing error:', error);
     throw new Error(`Failed to extract PDF text: ${error.message}`);
   }
 }
