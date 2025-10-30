@@ -7,7 +7,10 @@ import { promises as fs } from 'fs';
 export async function extractPdfText(filePath: string): Promise<string> {
   try {
     // Dynamic import for pdf-parse to handle CommonJS module
-    const pdfParse = (await import('pdf-parse')).default;
+    const pdfParseModule = await import('pdf-parse');
+    // pdf-parse exports the function directly, not as default
+    const pdfParse = pdfParseModule.default || pdfParseModule;
+    
     const dataBuffer = await fs.readFile(filePath);
     const data = await pdfParse(dataBuffer);
     
@@ -23,6 +26,9 @@ export async function extractPdfText(filePath: string): Promise<string> {
     }
     if (error.message.includes('Invalid PDF')) {
       throw new Error('Invalid or corrupted PDF file. Please check the file and try again.');
+    }
+    if (error.message.includes('not a function')) {
+      throw new Error('PDF parsing library error. Please try a different PDF file.');
     }
     throw new Error(`Failed to extract PDF text: ${error.message}`);
   }
