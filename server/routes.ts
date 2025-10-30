@@ -15,6 +15,7 @@ import openai from "./lib/openai";
 import { extractDocumentText, generateDocumentTitle } from "./lib/documentProcessor";
 import { transcribeAudio, estimateAudioDuration, generateAudioTitle } from "./lib/audioProcessor";
 import { uploadDocument, uploadAudio } from "./lib/upload";
+import authRoutes from "./routes/auth";
 import { 
   importVideoSchema, 
   importTextSchema, 
@@ -36,6 +37,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve uploaded files statically
   const uploadsPath = path.join(process.cwd(), 'uploads');
   app.use('/uploads', express.static(uploadsPath));
+  
+  // Register authentication routes
+  app.use('/api/auth', authRoutes);
   
   // Connect to MongoDB (non-blocking to allow app to start)
   connectDB().catch(err => {

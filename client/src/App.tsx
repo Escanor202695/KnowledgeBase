@@ -5,11 +5,26 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "@/pages/Home";
 import NotFound from "@/pages/not-found";
+import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
+import ForgotPassword from "@/pages/ForgotPassword";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
+      {/* Public routes */}
+      <Route path="/login" component={Login} />
+      <Route path="/signup" component={Signup} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      
+      {/* Protected routes */}
+      <Route path="/">
+        <ProtectedRoute>
+          <Home />
+        </ProtectedRoute>
+      </Route>
+      
       <Route component={NotFound} />
     </Switch>
   );
