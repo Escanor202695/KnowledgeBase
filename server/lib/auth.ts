@@ -5,120 +5,151 @@ import { Session, ISession } from './models/Session';
 
 /**
  * Hash a password using bcrypt
- * TODO: Implement password hashing
  */
 export async function hashPassword(password: string): Promise<string> {
-  // TODO: Implement bcrypt hashing
-  // Example: return await bcrypt.hash(password, 10);
-  throw new Error('Not implemented');
+  const salt = await bcrypt.genSalt(10);
+  return bcrypt.hash(password, salt);
 }
 
 /**
  * Compare a password with a hashed password
- * TODO: Implement password comparison
  */
 export async function comparePassword(password: string, hashedPassword: string): Promise<boolean> {
-  // TODO: Implement bcrypt compare
-  // Example: return await bcrypt.compare(password, hashedPassword);
-  throw new Error('Not implemented');
+  return bcrypt.compare(password, hashedPassword);
 }
 
 /**
  * Generate a secure random token
- * TODO: Implement token generation
  */
 export function generateToken(): string {
-  // TODO: Implement secure token generation
-  // Example: return crypto.randomBytes(32).toString('hex');
-  throw new Error('Not implemented');
+  return crypto.randomBytes(32).toString('hex');
 }
 
 /**
  * Create a new user session
- * TODO: Implement session creation
  */
 export async function createSession(userId: string, userAgent?: string, ipAddress?: string): Promise<ISession> {
-  // TODO: Implement session creation logic
-  // 1. Generate a secure token
-  // 2. Set expiration date (e.g., 30 days from now)
-  // 3. Save session to database
-  // 4. Return session object
-  throw new Error('Not implemented');
+  const token = generateToken();
+  
+  // Session expires in 30 days
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+
+  const session = await Session.create({
+    userId,
+    token,
+    expiresAt,
+    userAgent,
+    ipAddress,
+  });
+
+  return session;
 }
 
 /**
  * Validate a session token
- * TODO: Implement session validation
  */
 export async function validateSession(token: string): Promise<{ valid: boolean; userId?: string; session?: ISession }> {
-  // TODO: Implement session validation logic
-  // 1. Find session by token
-  // 2. Check if session exists and hasn't expired
-  // 3. Return validation result with userId if valid
-  throw new Error('Not implemented');
+  const session = await Session.findOne({
+    token,
+    expiresAt: { $gt: new Date() }, // Not expired
+  });
+
+  if (!session) {
+    return { valid: false };
+  }
+
+  return {
+    valid: true,
+    userId: session.userId,
+    session,
+  };
 }
 
 /**
  * Delete a session (logout)
- * TODO: Implement session deletion
  */
 export async function deleteSession(token: string): Promise<boolean> {
-  // TODO: Implement session deletion
-  // 1. Find and delete session by token
-  // 2. Return true if successful
-  throw new Error('Not implemented');
+  const result = await Session.deleteOne({ token });
+  return result.deletedCount > 0;
 }
 
 /**
  * Delete all sessions for a user
- * TODO: Implement bulk session deletion
  */
 export async function deleteAllUserSessions(userId: string): Promise<number> {
-  // TODO: Implement deletion of all user sessions
-  // 1. Find all sessions for userId
-  // 2. Delete them
-  // 3. Return count of deleted sessions
-  throw new Error('Not implemented');
+  const result = await Session.deleteMany({ userId });
+  return result.deletedCount;
 }
 
 /**
  * Generate password reset token
- * TODO: Implement password reset token generation
  */
 export async function generatePasswordResetToken(email: string): Promise<{ token: string; user: IUser } | null> {
-  // TODO: Implement password reset token generation
-  // 1. Find user by email
-  // 2. Generate secure reset token
-  // 3. Set token expiration (e.g., 1 hour)
-  // 4. Save token to user document
-  // 5. Return token and user
-  throw new Error('Not implemented');
+  const user = await User.findOne({ email: email.toLowerCase() });
+  
+  if (!user) {
+    return null; // Don't reveal if user exists for security
+  }
+
+  const resetToken = generateToken();
+  const resetTokenHash = await hashPassword(resetToken);
+  
+  // Token expires in 1 hour
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 1);
+
+  user.resetPasswordToken = resetTokenHash;
+  user.resetPasswordExpires = expiresAt;
+  await user.save();
+
+  return {
+    token: resetToken, // Return unhashed token to send via email
+    user,
+  };
 }
 
 /**
  * Reset password using token
- * TODO: Implement password reset
  */
 export async function resetPassword(token: string, newPassword: string): Promise<boolean> {
-  // TODO: Implement password reset logic
-  // 1. Find user by reset token
-  // 2. Check if token is not expired
-  // 3. Hash new password
-  // 4. Update user password
-  // 5. Clear reset token fields
-  // 6. Delete all existing sessions (force re-login)
-  // 7. Return success status
-  throw new Error('Not implemented');
+  // Find users with non-expired reset tokens
+  const users = await User.find({
+    resetPasswordExpires: { $gt: new Date() },
+  });
+
+  // Check each user's reset token
+  for (const user of users) {
+    if (user.resetPasswordToken) {
+      const isValidToken = await comparePassword(token, user.resetPasswordToken);
+      
+      if (isValidToken) {
+        // Hash new password
+        user.password = await hashPassword(newPassword);
+        
+        // Clear reset token fields
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        
+        await user.save();
+        
+        // Invalidate all existing sessions for security
+        await deleteAllUserSessions(user._id!.toString());
+        
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
  * Clean up expired sessions
- * TODO: Implement session cleanup
  */
 export async function cleanupExpiredSessions(): Promise<number> {
-  // TODO: Implement expired session cleanup
-  // 1. Find all sessions where expiresAt < now
-  // 2. Delete them
-  // 3. Return count of deleted sessions
-  throw new Error('Not implemented');
+  const result = await Session.deleteMany({
+    expiresAt: { $lt: new Date() },
+  });
+  return result.deletedCount;
 }

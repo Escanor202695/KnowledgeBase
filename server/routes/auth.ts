@@ -35,8 +35,56 @@ const router = Router();
  */
 router.post('/signup', async (req: Request, res: Response) => {
   try {
-    // TODO: Implement signup logic
-    res.status(501).json({ error: 'Signup not implemented yet' });
+    const { email, password, name } = req.body;
+
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Validate password strength (at least 8 chars)
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
+    // Create user
+    const user = await User.create({
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      name: name || undefined,
+    });
+
+    // Create session
+    const session = await createSession(
+      user._id!.toString(),
+      req.headers['user-agent'],
+      req.ip
+    );
+
+    // Return user info and token (don't send password)
+    res.status(201).json({
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+      },
+      token: session.token,
+    });
   } catch (error: any) {
     console.error('Signup error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -63,8 +111,41 @@ router.post('/signup', async (req: Request, res: Response) => {
  */
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    // TODO: Implement login logic
-    res.status(501).json({ error: 'Login not implemented yet' });
+    const { email, password } = req.body;
+
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Compare password
+    const isValidPassword = await comparePassword(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Create session
+    const session = await createSession(
+      user._id!.toString(),
+      req.headers['user-agent'],
+      req.ip
+    );
+
+    // Return user info and token
+    res.status(200).json({
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+      },
+      token: session.token,
+    });
   } catch (error: any) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -83,8 +164,18 @@ router.post('/login', async (req: Request, res: Response) => {
  */
 router.post('/logout', requireAuth, async (req: Request, res: Response) => {
   try {
-    // TODO: Implement logout logic
-    res.status(501).json({ error: 'Logout not implemented yet' });
+    // Extract token from Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.substring(7);
+
+    // Delete session
+    await deleteSession(token);
+
+    res.status(200).json({ message: 'Logged out successfully' });
   } catch (error: any) {
     console.error('Logout error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -130,8 +221,26 @@ router.post('/logout-all', requireAuth, async (req: Request, res: Response) => {
  */
 router.post('/forgot-password', async (req: Request, res: Response) => {
   try {
-    // TODO: Implement forgot password logic
-    res.status(501).json({ error: 'Forgot password not implemented yet' });
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Generate reset token
+    const result = await generatePasswordResetToken(email);
+
+    // Always return success to prevent email enumeration
+    // In production, you would send an email with the reset link here
+    // For now, we'll log the token (only for development)
+    if (result) {
+      console.log('Password reset token for', email, ':', result.token);
+      console.log('In production, send this via email to:', email);
+    }
+
+    res.status(200).json({
+      message: 'If an account exists with this email, you will receive password reset instructions.',
+    });
   } catch (error: any) {
     console.error('Forgot password error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -179,8 +288,20 @@ router.post('/reset-password', async (req: Request, res: Response) => {
  */
 router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
-    // TODO: Implement get current user logic
-    res.status(501).json({ error: 'Get user not implemented yet' });
+    // User is already attached to req by requireAuth middleware
+    const user = (req as any).user;
+
+    if (!user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    res.status(200).json({
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+      },
+    });
   } catch (error: any) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Internal server error' });

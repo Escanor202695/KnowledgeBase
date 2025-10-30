@@ -28,19 +28,44 @@ declare global {
  * 4. If invalid, return 401 Unauthorized
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  // TODO: Implement authentication middleware
-  // Example implementation:
-  // const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies.sessionToken;
-  // if (!token) return res.status(401).json({ error: 'Not authenticated' });
-  // const { valid, userId } = await validateSession(token);
-  // if (!valid) return res.status(401).json({ error: 'Invalid or expired session' });
-  // const user = await User.findById(userId);
-  // if (!user) return res.status(401).json({ error: 'User not found' });
-  // req.user = { id: user._id.toString(), email: user.email, name: user.name };
-  // req.session = { token };
-  // next();
-  
-  res.status(401).json({ error: 'Authentication not implemented' });
+  try {
+    // Extract token from Authorization header
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authentication token provided' });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    // Validate session token
+    const { valid, userId } = await validateSession(token);
+
+    if (!valid || !userId) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    // Fetch user from database
+    const { User } = await import('../lib/models/User');
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // Attach user to request object
+    req.user = {
+      id: user._id!.toString(),
+      email: user.email,
+      name: user.name,
+    };
+    req.session = { token };
+
+    next();
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 }
 
 /**
@@ -53,8 +78,33 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
  * 3. Continue regardless of authentication status
  */
 export async function optionalAuth(req: Request, res: Response, next: NextFunction) {
-  // TODO: Implement optional authentication middleware
-  // Similar to requireAuth but doesn't return 401 if not authenticated
-  
-  next();
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next(); // No token, continue without auth
+    }
+
+    const token = authHeader.substring(7);
+    const { valid, userId } = await validateSession(token);
+
+    if (valid && userId) {
+      const { User } = await import('../lib/models/User');
+      const user = await User.findById(userId);
+      
+      if (user) {
+        req.user = {
+          id: user._id!.toString(),
+          email: user.email,
+          name: user.name,
+        };
+        req.session = { token };
+      }
+    }
+
+    next();
+  } catch (error) {
+    console.error('Optional auth middleware error:', error);
+    next(); // Continue even if there's an error
+  }
 }
