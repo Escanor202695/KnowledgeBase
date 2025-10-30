@@ -90,7 +90,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Extract metadata
         title = videoInfo.basic_info?.title || title;
-        videoDurationSeconds = videoInfo.basic_info?.duration || 0;
+        // youtubei.js returns duration in milliseconds, convert to seconds
+        const durationFromAPI = videoInfo.basic_info?.duration || 0;
+        videoDurationSeconds = Math.floor(durationFromAPI / 1000);
         console.log(`  ✅ Retrieved metadata: "${title}" (${videoDurationSeconds}s)`);
         
         // Fetch transcript

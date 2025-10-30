@@ -127,6 +127,18 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - Professional color scheme with primary blue accent
 
 ## Recent Changes (Latest Session)
+- **UI Fixes - All Completed** ✅:
+  - **YouTube Duration Bug Fixed**: youtubei.js returns milliseconds but code treated as seconds
+    - Backend fix (server/routes.ts): Convert API duration from ms to seconds via Math.floor(duration/1000)
+    - Database migration: Fixed 2 existing videos (Rick Astley: 34:39, "If You're in Your 20s": 3:56:24)
+    - No more malformed durations like "3940:00:03"
+  - **Equal Card Heights**: All source cards now have consistent aspect-video containers (16:9 ratio)
+    - Changed grid to max 2 columns (md:grid-cols-2, removed lg:grid-cols-3)
+    - Placeholder icons increased from 64px to 96px (w-24 h-24)
+    - Background changed from bg-muted/50 to bg-muted for prominence
+  - **Duration Badge Visibility**: Only shows for YouTube videos (removed from text/document/audio)
+  - **Placeholder Styling**: Type-specific colored icons (blue=text, green=document, purple=audio)
+  - End-to-end testing: All UI fixes verified and passing ✅
 - **PDF Library Migration**: Replaced pdf-parse with **pdfjs-dist** (Firefox's production-grade PDF parser)
   - Using legacy build for Node.js compatibility (no browser dependencies)
   - Multi-page PDF support with page-by-page text extraction

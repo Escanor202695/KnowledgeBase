@@ -46,13 +46,13 @@ export function SourceLibrary() {
   const getPlaceholderIcon = (sourceType: string) => {
     switch (sourceType) {
       case 'text':
-        return <FileText className="w-16 h-16" />;
+        return <FileText className="w-24 h-24" />;
       case 'document':
-        return <File className="w-16 h-16" />;
+        return <File className="w-24 h-24" />;
       case 'audio':
-        return <FileAudio className="w-16 h-16" />;
+        return <FileAudio className="w-24 h-24" />;
       default:
-        return <FileText className="w-16 h-16" />;
+        return <FileText className="w-24 h-24" />;
     }
   };
 
@@ -171,7 +171,7 @@ export function SourceLibrary() {
                     )
                   ) : (
                     // Placeholder icon for non-YouTube sources
-                    <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                    <div className="w-full h-full flex items-center justify-center bg-muted" data-testid={`placeholder-${source._id}`}>
                       <div className={`${source.source_type === 'text' ? 'text-blue-500' : source.source_type === 'document' ? 'text-green-500' : 'text-purple-500'}`}>
                         {getPlaceholderIcon(source.source_type)}
                       </div>
