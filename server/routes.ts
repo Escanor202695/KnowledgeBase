@@ -147,6 +147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         source_type: 'youtube',
         title,
         youtube_id: videoId,
+        url: `https://youtube.com/watch?v=${videoId}`,
         thumbnail_url: thumbnailUrl,
         duration,
       });
@@ -672,15 +673,18 @@ ${context}`;
       // Get AI response
       const answer = await chatCompletion(systemPrompt, message);
 
-      // Format top 3 sources
+      // Format top 3 sources as proper SourceCitation objects
       const sources = results.slice(0, 3).map(r => ({
-        video_id: r.video_id.toString(),
-        youtube_id: r.video_youtube_id,
-        video_title: r.video_title,
-        channel_name: r.video_channel,
+        source_id: r.video_id.toString(),
+        source_type: r.source_type || 'youtube',
+        source_title: r.video_title,
+        author: r.video_channel,
         start_time: r.start_time,
         content: r.content,
         thumbnail_url: r.video_thumbnail,
+        url: r.source_type === 'youtube' && r.video_youtube_id 
+          ? `https://youtube.com/watch?v=${r.video_youtube_id}` 
+          : r.source_url,
         score: r.score,
       }));
 

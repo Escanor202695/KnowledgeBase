@@ -1,8 +1,9 @@
-import { Play, ExternalLink } from "lucide-react";
-import type { Source } from "@shared/schema";
+import { Play, ExternalLink, Youtube, FileText, FileAudio, File } from "lucide-react";
+import type { SourceCitation as SourceCitationType } from "@shared/schema";
+import { Card } from "@/components/ui/card";
 
 interface SourceCitationProps {
-  source: Source;
+  source: SourceCitationType;
 }
 
 export function SourceCitation({ source }: SourceCitationProps) {
@@ -12,43 +13,93 @@ export function SourceCitation({ source }: SourceCitationProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const getYoutubeUrl = () => {
-    return `https://youtube.com/watch?v=${source.youtube_id}&t=${Math.floor(source.start_time)}s`;
+  const getSourceIcon = () => {
+    switch (source.source_type) {
+      case 'youtube':
+        return <Youtube className="w-5 h-5 text-red-500" />;
+      case 'text':
+        return <FileText className="w-5 h-5 text-blue-500" />;
+      case 'audio':
+        return <FileAudio className="w-5 h-5 text-purple-500" />;
+      case 'document':
+        return <File className="w-5 h-5 text-green-500" />;
+      default:
+        return <FileText className="w-5 h-5 text-muted-foreground" />;
+    }
   };
 
+  const getSourceUrl = () => {
+    if (source.source_type === 'youtube' && source.url) {
+      // Add timestamp to YouTube URL
+      const baseUrl = source.url.split('&t=')[0];
+      return `${baseUrl}&t=${Math.floor(source.start_time)}s`;
+    }
+    return source.url;
+  };
+
+  const hasTimestamp = source.source_type === 'youtube' || source.source_type === 'audio';
+
   return (
-    <div className="border-l-2 border-primary pl-4 py-2 hover-elevate transition-all duration-200">
+    <Card className="p-3 hover-elevate" data-testid={`card-source-${source.source_id}`}>
       <div className="flex items-start gap-3">
-        <div className="relative w-16 h-9 shrink-0 rounded overflow-hidden bg-muted">
-          <img
-            src={source.thumbnail_url}
-            alt={source.video_title}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
+        {/* Thumbnail or Icon */}
+        <div className="relative w-20 h-20 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
+          {source.thumbnail_url && source.source_type === 'youtube' ? (
+            <img
+              src={source.thumbnail_url}
+              alt={source.source_title}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                e.currentTarget.parentElement!.innerHTML = `
+                  <div class="w-full h-full flex items-center justify-center">
+                    ${getSourceIcon()}
+                  </div>
+                `;
+              }}
+            />
+          ) : (
+            getSourceIcon()
+          )}
         </div>
+
+        {/* Content */}
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium line-clamp-1" data-testid={`text-source-title-${source.video_id}`}>
-            {source.video_title}
+          <h4 className="text-sm font-semibold line-clamp-2 mb-1" data-testid={`text-source-title-${source.source_id}`}>
+            {source.source_title}
           </h4>
-          <a
-            href={getYoutubeUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-primary underline flex items-center gap-1 mt-1 hover:text-primary/80"
-            data-testid={`link-source-timestamp-${source.video_id}`}
-          >
-            <Play className="w-3 h-3" />
-            {formatTimestamp(source.start_time)}
-            <ExternalLink className="w-3 h-3" />
-          </a>
+          
+          {/* Author */}
+          {source.author && (
+            <p className="text-xs text-muted-foreground mb-1">
+              by {source.author}
+            </p>
+          )}
+
+          {/* Timestamp link for YouTube/Audio */}
+          {hasTimestamp && source.url && (
+            <a
+              href={getSourceUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline flex items-center gap-1 mt-1 hover:text-primary/80 transition-colors"
+              data-testid={`link-source-timestamp-${source.source_id}`}
+            >
+              <Play className="w-3 h-3" />
+              Jump to {formatTimestamp(source.start_time)}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+
+          {/* Content preview */}
           {source.content && (
-            <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-normal">
+            <p className="text-xs text-muted-foreground mt-2 line-clamp-3 leading-relaxed">
               {source.content}
             </p>
           )}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
