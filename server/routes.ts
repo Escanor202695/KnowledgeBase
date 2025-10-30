@@ -16,6 +16,7 @@ import { extractDocumentText, generateDocumentTitle } from "./lib/documentProces
 import { transcribeAudio, estimateAudioDuration, generateAudioTitle } from "./lib/audioProcessor";
 import { uploadDocument, uploadAudio } from "./lib/upload";
 import authRoutes from "./routes/auth";
+import { requireAuth } from "./middleware/auth";
 import { 
   importVideoSchema, 
   importTextSchema, 
@@ -51,7 +52,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/import-video - Import and process YouTube video
-  app.post("/api/import-video", async (req, res) => {
+  app.post("/api/import-video", requireAuth, async (req, res) => {
     try {
       // Ensure MongoDB is connected
       await connectDB();
@@ -193,7 +194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/import-text - Import direct text/article
-  app.post("/api/import-text", async (req, res) => {
+  app.post("/api/import-text", requireAuth, async (req, res) => {
     try {
       await connectDB();
       
@@ -261,7 +262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/import-document - Import PDF/DOCX/TXT file
-  app.post("/api/import-document", uploadDocument.single('file'), async (req, res) => {
+  app.post("/api/import-document", requireAuth, uploadDocument.single('file'), async (req, res) => {
     try {
       await connectDB();
 
@@ -381,7 +382,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/import-audio - Import and transcribe audio file
-  app.post("/api/import-audio", uploadAudio.single('file'), async (req, res) => {
+  app.post("/api/import-audio", requireAuth, uploadAudio.single('file'), async (req, res) => {
     try {
       await connectDB();
 
@@ -491,7 +492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/chat - Chat with RAG using vector search
-  app.post("/api/chat", async (req, res) => {
+  app.post("/api/chat", requireAuth, async (req, res) => {
     try {
       // Ensure MongoDB is connected
       await connectDB();
@@ -729,7 +730,7 @@ ${context}`;
   });
 
   // GET /api/videos - List all videos (backwards compatibility)
-  app.get("/api/videos", async (req, res) => {
+  app.get("/api/videos", requireAuth, async (req, res) => {
     try {
       // Ensure MongoDB is connected
       await connectDB();
@@ -753,7 +754,7 @@ ${context}`;
   });
 
   // GET /api/sources - List all sources (videos, text, documents, audio)
-  app.get("/api/sources", async (req, res) => {
+  app.get("/api/sources", requireAuth, async (req, res) => {
     try {
       await connectDB();
       
