@@ -299,6 +299,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         author,
       });
 
+      const DEBUG = process.env.NODE_ENV === 'development';
+      if (DEBUG) console.log(`  📝 Extracted ${extractedText.length} characters of text`);
+
       // Create chunks
       const textTranscript = [{ text: extractedText, offset: 0, duration: 0 }];
       const chunks = createChunks(textTranscript);
@@ -307,6 +310,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const chunkTexts = chunks.map(c => c.content);
       console.log(`  🔢 Generating embeddings for ${chunkTexts.length} chunks...`);
       const embeddings = await generateEmbeddings(chunkTexts);
+      if (DEBUG) console.log(`  ✅ Generated ${embeddings.length} embeddings (dimension: ${embeddings[0]?.length || 0})`);
 
       // Create chunk documents
       const chunkDocuments = chunks.map((chunk, index) => ({
@@ -318,7 +322,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chunk_index: chunk.chunk_index,
       }));
 
-      await Chunk.insertMany(chunkDocuments);
+      const insertResult = await Chunk.insertMany(chunkDocuments);
+      if (DEBUG) console.log(`  💾 Saved ${insertResult.length} chunks to database`);
+      
+      // Verify chunks were saved with embeddings (dev only)
+      if (DEBUG) {
+        const savedChunk = await Chunk.findOne({ source_id: source._id });
+        if (savedChunk) {
+          console.log(`  🔍 Verification - First chunk has embedding: ${savedChunk.embedding ? `YES (${savedChunk.embedding.length}D)` : 'NO'}`);
+        }
+      }
 
       console.log(`✅ Imported document "${title}" with ${chunks.length} chunks`);
 

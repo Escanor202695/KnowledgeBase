@@ -1,0 +1,1 @@
+Testing document import with embedding verification. This text should be chunked and embedded properly for vector search retrieval.

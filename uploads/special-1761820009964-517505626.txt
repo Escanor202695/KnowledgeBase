@@ -1,0 +1,1 @@
+Machine learning uses symbols like ∑, α, β, θ for mathematical notation. It also handles UTF-8: 你好, مرحبا, Здравствуйте

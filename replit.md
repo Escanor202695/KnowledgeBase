@@ -9,7 +9,7 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - **Database**: MongoDB Atlas with Vector Search
 - **AI**: OpenAI GPT-4o-mini (chat) + text-embedding-3-small (embeddings - 1536 dimensions) + Whisper (audio transcription)
 - **Video & Transcript**: youtubei.js (actively maintained InnerTube API for metadata + transcripts)
-- **Document Processing**: pdf-parse (PDF), mammoth (DOCX), native fs (TXT)
+- **Document Processing**: pdfjs-dist (PDF - production-grade parser from Firefox), mammoth (DOCX), native fs (TXT)
 
 ## Features
 - ✅ **Multi-source import system**: YouTube videos, text/articles, documents (PDF/DOCX/TXT), audio files
@@ -127,13 +127,26 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - Professional color scheme with primary blue accent
 
 ## Recent Changes (Latest Session)
+- **PDF Library Migration**: Replaced pdf-parse with **pdfjs-dist** (Firefox's production-grade PDF parser)
+  - Using legacy build for Node.js compatibility (no browser dependencies)
+  - Multi-page PDF support with page-by-page text extraction
+  - Proper resource cleanup (finally block prevents worker thread leaks)
+  - Specific error handling for password-protected and corrupted PDFs
+  - Production-safe logging (detailed logs only in development mode)
+- **Comprehensive Corner Case Testing** - All tests passed:
+  - ✅ Empty documents: Properly rejected with helpful error messages
+  - ✅ Short documents (<10 chars): Validation working correctly
+  - ✅ Special characters (UTF-8, Unicode): Handled properly
+  - ✅ Long documents (>1500 chars): Automatically chunked (8 chunks)
+  - ✅ Rapid sequential imports: No race conditions, all succeed
+  - ✅ Vector search: Working correctly (scores above 0.65 threshold)
 - **MAJOR: Multi-source knowledge base support** - Expanded from YouTube-only to support text, documents, and audio
 - Created unified Source model replacing Video model (backwards compatible)
 - Implemented 4 new import endpoints: text, document, audio, unified sources listing
 - Created SourceImporter component with tabbed interface for all import types
 - Created SourceLibrary component displaying all sources with type badges and icons
 - Integrated Whisper API for automatic audio transcription
-- Integrated pdf-parse, mammoth for document text extraction
+- Integrated mammoth for DOCX parsing
 - Added Multer middleware for file upload handling
 - Updated Home page to use new multi-source components
 - All source types use same chunking → embedding → vector search pipeline
