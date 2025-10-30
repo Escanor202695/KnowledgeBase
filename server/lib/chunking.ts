@@ -138,5 +138,9 @@ export function createChunks(
 export function calculateDuration(transcript: TranscriptSegment[]): number {
   if (transcript.length === 0) return 0;
   const lastSegment = transcript[transcript.length - 1];
-  return Math.ceil((lastSegment.offset + lastSegment.duration) / 1000);
+  // offset and duration are in milliseconds from youtubei.js
+  // Convert to seconds
+  const durationSeconds = Math.ceil((lastSegment.offset + lastSegment.duration) / 1000);
+  console.log(`  📊 Calculated duration: ${durationSeconds}s from last segment offset ${lastSegment.offset}ms`);
+  return durationSeconds;
 }

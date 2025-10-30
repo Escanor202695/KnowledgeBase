@@ -120,6 +120,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }));
         
         console.log(`  ✅ Successfully fetched transcript (${transcript.length} segments)`);
+        if (transcript.length > 0) {
+          const lastSeg = transcript[transcript.length - 1];
+          console.log(`  📊 Last segment - offset: ${lastSeg.offset}ms, duration: ${lastSeg.duration}ms`);
+        }
       } catch (error: any) {
         console.error('❌ Failed to fetch video info or transcript:', error.message);
         
