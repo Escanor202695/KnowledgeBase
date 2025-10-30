@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Youtube, FileText, Upload, Mic, ExternalLink, Clock, File, FileAudio } from 'lucide-react';
+import { Youtube, FileText, Upload, Mic, ExternalLink, File, FileAudio } from 'lucide-react';
 import type { Source } from '@shared/schema';
 
 interface SourcesResponse {
@@ -54,19 +54,6 @@ export function SourceLibrary() {
       default:
         return <FileText className="w-12 h-12" />;
     }
-  };
-
-  const formatDuration = (seconds?: number) => {
-    if (!seconds) return null;
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    
-    if (hours > 0) {
-      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    if (mins === 0) return `${secs}s`;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getYouTubeUrl = (youtubeId?: string) => {
@@ -170,13 +157,6 @@ export function SourceLibrary() {
                     >
                       <span className="capitalize">{source.source_type}</span>
                     </Badge>
-                    {/* Only show duration for YouTube videos */}
-                    {isYouTube && source.duration && (
-                      <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {formatDuration(source.duration)}
-                      </Badge>
-                    )}
                   </div>
                 </div>
                 
