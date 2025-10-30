@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="max-w-7xl mx-auto px-4 lg:px-8 py-6">
+      <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Left Panel - Source Input and Library */}
           <div className="lg:col-span-2 space-y-6">
