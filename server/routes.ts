@@ -96,10 +96,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Extract metadata
         title = videoInfo.basic_info?.title || title;
-        // youtubei.js returns duration in milliseconds, convert to seconds
+
+        // Use it in your code
         const durationFromAPI = videoInfo.basic_info?.duration || 0;
         videoDurationSeconds = Math.floor(durationFromAPI / 1000);
-        console.log(`  ✅ Retrieved metadata: "${title}" (${videoDurationSeconds}s)`);
+        const formattedDuration = formatDuration(videoDurationSeconds);
+        console.log(`  ✅ Retrieved metadata: "${title}" (${formattedDuration})`);
         
         // Fetch transcript
         console.log(`  📝 Fetching transcript...`);
@@ -816,9 +818,16 @@ ${context}`;
   return httpServer;
 }
 
-// Helper function to format timestamp
-function formatTimestamp(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+// youtubei.js returns duration in milliseconds, convert to seconds
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  // Pad with zeros
+  const hh = hours.toString().padStart(2, '0');
+  const mm = minutes.toString().padStart(2, '0');
+  const ss = secs.toString().padStart(2, '0');
+
+  return `${hh}:${mm}:${ss}`;
 }
