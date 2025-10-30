@@ -12,11 +12,11 @@ export default function Home() {
       <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Left Panel - Accordion Sections */}
-          <div className="lg:col-span-2 flex flex-col lg:h-[calc(100vh-8rem)] lg:overflow-hidden">
-            <Accordion type="single" defaultValue="library" collapsible className="flex flex-col flex-1 gap-3 min-h-0">
+          <div className="lg:col-span-2 flex flex-col lg:max-h-[calc(100vh-8rem)]">
+            <Accordion type="single" defaultValue="library" collapsible className="flex flex-col flex-1 gap-3 min-h-0 overflow-visible">
               {/* Import Knowledge Section */}
-              <AccordionItem value="import" className="border-0 flex flex-col data-[state=open]:flex-1 min-h-0">
-                <Card className="flex flex-col h-full min-h-0">
+              <AccordionItem value="import" className="border-0 flex flex-col data-[state=open]:flex-1 min-h-0 overflow-visible">
+                <Card className="flex flex-col h-full min-h-0 overflow-visible">
                   <AccordionTrigger className="hover:no-underline p-0 [&[data-state=open]>div]:border-b flex-shrink-0">
                     <CardHeader className="hover-elevate flex flex-row items-center justify-between p-4 w-full">
                       <CardTitle className="text-base">Import Knowledge</CardTitle>
@@ -31,8 +31,8 @@ export default function Home() {
               </AccordionItem>
 
               {/* Knowledge Base Section */}
-              <AccordionItem value="library" className="border-0 flex flex-col data-[state=open]:flex-1 min-h-0">
-                <Card className="flex flex-col h-full min-h-0">
+              <AccordionItem value="library" className="border-0 flex flex-col data-[state=open]:flex-1 min-h-0 overflow-visible">
+                <Card className="flex flex-col h-full min-h-0 overflow-visible">
                   <AccordionTrigger className="hover:no-underline p-0 [&[data-state=open]>div]:border-b flex-shrink-0">
                     <CardHeader className="hover-elevate flex flex-row items-center justify-between p-4 w-full">
                       <CardTitle className="text-base">Your Knowledge Base</CardTitle>
