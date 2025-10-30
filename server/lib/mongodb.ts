@@ -1,5 +1,4 @@
-import mongoose from 'mongoose';
-import 'dotenv/config';
+import mongoose, { type Mongoose } from 'mongoose';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -16,8 +15,8 @@ if (!MONGODB_URI) {
  */
 declare global {
   var mongoose: {
-    conn: typeof mongoose | null;
-    promise: Promise<typeof mongoose> | null;
+    conn: Mongoose | null;
+    promise: Promise<Mongoose> | null;
   };
 }
 

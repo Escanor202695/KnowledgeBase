@@ -52,28 +52,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Fetch transcript
+      // Fetch transcript with language fallback
       let transcript;
-      try {
-        transcript = await YoutubeTranscript.fetchTranscript(videoId);
-      } catch (error: any) {
-        console.error('Transcript fetch error:', error);
-        if (error.message?.includes('disabled')) {
+      const languageCodes = ['en', 'en-US', 'en-GB', 'en-CA', 'en-AU'];
+      let lastError: any = null;
+      
+      console.log(`📝 Attempting to fetch transcript for video: ${videoId}`);
+      
+      // Try multiple language codes
+      for (const lang of languageCodes) {
+        try {
+          console.log(`  Trying language code: ${lang}`);
+          transcript = await YoutubeTranscript.fetchTranscript(videoId, { lang });
+          console.log(`  ✅ Successfully fetched transcript with ${lang} (${transcript.length} segments)`);
+          break;
+        } catch (error: any) {
+          console.log(`  ❌ Failed with ${lang}: ${error.message}`);
+          lastError = error;
+          continue;
+        }
+      }
+      
+      // If language-specific attempts failed, try without language parameter (auto-detect)
+      if (!transcript) {
+        try {
+          console.log(`  Trying auto-detect (no language specified)`);
+          transcript = await YoutubeTranscript.fetchTranscript(videoId);
+          console.log(`  ✅ Successfully fetched transcript with auto-detect (${transcript.length} segments)`);
+        } catch (error: any) {
+          console.log(`  ❌ Failed with auto-detect: ${error.message}`);
+          lastError = error;
+        }
+      }
+      
+      // Handle all failures
+      if (!transcript) {
+        console.error('❌ All transcript fetch attempts failed');
+        console.error('Last error:', lastError);
+        
+        if (lastError?.message?.includes('disabled')) {
           return res.status(400).json({ 
             error: "Captions are disabled for this video." 
           });
         }
-        if (error.message?.includes('private') || error.message?.includes('unavailable')) {
+        if (lastError?.message?.includes('private') || lastError?.message?.includes('unavailable')) {
           return res.status(400).json({ 
             error: "This video is private or unavailable." 
           });
         }
         return res.status(400).json({ 
-          error: "Could not fetch transcript. The video may not have captions available." 
+          error: `Could not fetch transcript. ${lastError?.message || 'The video may not have captions available.'}` 
         });
       }
 
-      if (!transcript || transcript.length === 0) {
+      if (transcript.length === 0) {
         return res.status(400).json({ 
           error: "No transcript available for this video." 
         });
@@ -123,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return res.json({ 
         success: true, 
-        videoId: video._id.toString() 
+        videoId: String(video._id)
       });
     } catch (error: any) {
       console.error('Import video error:', error);
