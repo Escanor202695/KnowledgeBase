@@ -337,6 +337,36 @@ ${context}`;
     }
   });
 
+  // GET /api/debug/database - Show database info
+  app.get("/api/debug/database", async (req, res) => {
+    try {
+      const conn = await connectDB();
+      
+      const videoCount = await Video.countDocuments();
+      const chunkCount = await Chunk.countDocuments();
+      
+      // Get sample chunk to see structure
+      const sampleChunk = await Chunk.findOne().lean();
+      
+      return res.json({
+        database: conn.connection.db?.databaseName || 'unknown',
+        collections: {
+          videos: {
+            name: Video.collection.name,
+            count: videoCount,
+          },
+          chunks: {
+            name: Chunk.collection.name,
+            count: chunkCount,
+            sampleEmbeddingDimension: sampleChunk?.embedding?.length || 0,
+          },
+        },
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
   // GET /api/videos - List all videos
   app.get("/api/videos", async (req, res) => {
     try {
