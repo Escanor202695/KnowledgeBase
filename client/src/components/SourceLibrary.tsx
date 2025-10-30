@@ -46,13 +46,13 @@ export function SourceLibrary() {
   const getPlaceholderIcon = (sourceType: string) => {
     switch (sourceType) {
       case 'text':
-        return <FileText className="w-24 h-24" />;
+        return <FileText className="w-12 h-12" />;
       case 'document':
-        return <File className="w-24 h-24" />;
+        return <File className="w-12 h-12" />;
       case 'audio':
-        return <FileAudio className="w-24 h-24" />;
+        return <FileAudio className="w-12 h-12" />;
       default:
-        return <FileText className="w-24 h-24" />;
+        return <FileText className="w-12 h-12" />;
     }
   };
 
@@ -197,9 +197,9 @@ export function SourceLibrary() {
                   </div>
                 </div>
                 
-                <CardHeader className="space-y-2">
+                <CardHeader className="space-y-1.5 p-3 lg:p-4">
                   <CardTitle 
-                    className="text-base line-clamp-2"
+                    className="text-sm lg:text-base line-clamp-2"
                     data-testid={`text-title-${source._id}`}
                   >
                     {isYouTube && youtubeUrl ? (
@@ -217,9 +217,19 @@ export function SourceLibrary() {
                     )}
                   </CardTitle>
                   
+                  {/* Show content preview for non-YouTube sources */}
+                  {!isYouTube && source.content && (
+                    <CardDescription 
+                      className="text-xs lg:text-sm line-clamp-2"
+                      data-testid={`text-preview-${source._id}`}
+                    >
+                      {source.content}
+                    </CardDescription>
+                  )}
+                  
                   {source.author && (
                     <CardDescription 
-                      className="text-sm line-clamp-1"
+                      className="text-xs line-clamp-1"
                       data-testid={`text-author-${source._id}`}
                     >
                       {source.author}

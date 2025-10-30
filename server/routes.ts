@@ -11,6 +11,7 @@ import Chunk from "./lib/models/Chunk";
 import { extractVideoId, getYoutubeThumbnail } from "./lib/youtube";
 import { createChunks, calculateDuration } from "./lib/chunking";
 import { generateEmbeddings, chatCompletion, generateEmbedding } from "./lib/openai";
+import openai from "./lib/openai";
 import { extractDocumentText, generateDocumentTitle } from "./lib/documentProcessor";
 import { transcribeAudio, estimateAudioDuration, generateAudioTitle } from "./lib/audioProcessor";
 import { uploadDocument, uploadAudio } from "./lib/upload";
@@ -288,8 +289,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Generate title if not provided
-      const title = customTitle || generateDocumentTitle(extractedText, file.originalname);
+      // Generate title if not provided - use AI for better titles
+      let title = customTitle;
+      if (!title) {
+        try {
+          // Use AI to generate a descriptive title from content
+          const preview = extractedText.substring(0, 1000);
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{
+              role: "system",
+              content: "You are a helpful assistant that generates concise, descriptive titles for documents based on their content. Generate a title in 3-8 words that captures the main topic."
+            }, {
+              role: "user",
+              content: `Generate a title for this document:\n\n${preview}`
+            }],
+            max_tokens: 50,
+            temperature: 0.7,
+          });
+          title = completion.choices[0]?.message?.content?.trim() || generateDocumentTitle(extractedText, file.originalname);
+        } catch (error) {
+          console.warn('Failed to generate AI title, using fallback:', error);
+          title = generateDocumentTitle(extractedText, file.originalname);
+        }
+      }
 
       // Create source document
       const source = await Source.create({
@@ -385,8 +408,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Generate title if not provided
-      const title = customTitle || generateAudioTitle(file.originalname);
+      // Generate title if not provided - use AI for better titles
+      let title = customTitle;
+      if (!title && transcription) {
+        try {
+          // Use AI to generate a descriptive title from transcription
+          const preview = transcription.substring(0, 1000);
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{
+              role: "system",
+              content: "You are a helpful assistant that generates concise, descriptive titles for audio recordings based on their transcription. Generate a title in 3-8 words that captures the main topic."
+            }, {
+              role: "user",
+              content: `Generate a title for this audio recording:\n\n${preview}`
+            }],
+            max_tokens: 50,
+            temperature: 0.7,
+          });
+          title = completion.choices[0]?.message?.content?.trim() || file.originalname.replace(/\.[^/.]+$/, '');
+        } catch (error) {
+          console.warn('Failed to generate AI title for audio, using fallback:', error);
+          title = file.originalname.replace(/\.[^/.]+$/, '');
+        }
+      } else if (!title) {
+        title = file.originalname.replace(/\.[^/.]+$/, '');
+      }
       const duration = estimateAudioDuration(file.size);
 
       // Create source document
