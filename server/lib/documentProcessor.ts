@@ -10,8 +10,20 @@ export async function extractPdfText(filePath: string): Promise<string> {
     const pdfParse = (await import('pdf-parse')).default;
     const dataBuffer = await fs.readFile(filePath);
     const data = await pdfParse(dataBuffer);
+    
+    if (!data.text || data.text.trim().length === 0) {
+      throw new Error('PDF appears to be empty or contains only images (scanned PDF). Please use a text-based PDF or OCR the document first.');
+    }
+    
     return data.text;
   } catch (error: any) {
+    // Provide helpful error messages
+    if (error.message.includes('empty') || error.message.includes('images')) {
+      throw error;
+    }
+    if (error.message.includes('Invalid PDF')) {
+      throw new Error('Invalid or corrupted PDF file. Please check the file and try again.');
+    }
     throw new Error(`Failed to extract PDF text: ${error.message}`);
   }
 }

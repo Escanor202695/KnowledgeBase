@@ -127,7 +127,7 @@ export function ChatInterface() {
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted"
                 }`}
-                data-testid={`text-message-${message.id}`}
+                data-testid={`message-${message.id}`}
               >
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">
                   {message.content}
