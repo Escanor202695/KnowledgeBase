@@ -49,7 +49,6 @@ const userSchema = new mongoose.Schema<IUser>(
   }
 );
 
-// Index for faster email lookups
-userSchema.index({ email: 1 });
+// Note: email index is automatically created by unique:true constraint
 
 export const User = mongoose.model<IUser>('User', userSchema);

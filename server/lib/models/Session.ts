@@ -39,8 +39,8 @@ const sessionSchema = new mongoose.Schema<ISession>(
 );
 
 // Indexes for faster queries
+// Note: token index is automatically created by unique:true constraint
 sessionSchema.index({ userId: 1 });
-sessionSchema.index({ token: 1 });
 sessionSchema.index({ expiresAt: 1 });
 
 export const Session = mongoose.model<ISession>('Session', sessionSchema);
