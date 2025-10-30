@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { Innertube } from 'youtubei.js';
 import { YoutubeTranscript } from 'youtube-transcript';
 import connectDB from "./lib/mongodb";
 import Video from "./lib/models/Video";
@@ -8,6 +9,15 @@ import { extractVideoId, getYoutubeThumbnail } from "./lib/youtube";
 import { createChunks, calculateDuration } from "./lib/chunking";
 import { generateEmbeddings, chatCompletion, generateEmbedding } from "./lib/openai";
 import { importVideoSchema, chatSchema } from "@shared/schema";
+
+// Initialize YouTube client once at module scope for better performance
+let youtubeClient: Innertube | null = null;
+async function getYoutubeClient() {
+  if (!youtubeClient) {
+    youtubeClient = await Innertube.create();
+  }
+  return youtubeClient;
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Connect to MongoDB (non-blocking to allow app to start)
@@ -52,12 +62,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Fetch transcript with language fallback
+      // Fetch video metadata using youtubei.js
+      console.log(`📝 Fetching video metadata for: ${videoId}`);
+      let title = `YouTube Video ${videoId}`;
+      let videoDurationSeconds = 0;
+      
+      try {
+        const youtube = await getYoutubeClient();
+        const videoInfo = await youtube.getBasicInfo(videoId);
+        title = videoInfo.basic_info?.title || title;
+        videoDurationSeconds = videoInfo.basic_info?.duration || 0;
+        console.log(`  ✅ Retrieved metadata: "${title}" (${videoDurationSeconds}s)`);
+      } catch (error: any) {
+        console.log(`  ⚠️ Could not fetch metadata, using defaults: ${error.message}`);
+      }
+
+      // Fetch transcript with robust language fallback
+      console.log(`📝 Attempting to fetch transcript for video: ${videoId}`);
       let transcript;
       const languageCodes = ['en', 'en-US', 'en-GB', 'en-CA', 'en-AU'];
       let lastError: any = null;
-      
-      console.log(`📝 Attempting to fetch transcript for video: ${videoId}`);
       
       // Try multiple language codes
       for (const lang of languageCodes) {
@@ -111,12 +135,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Calculate video metadata
-      const duration = calculateDuration(transcript);
+      // Calculate duration from transcript or use video metadata
+      const duration = calculateDuration(transcript) || videoDurationSeconds;
       const thumbnailUrl = getYoutubeThumbnail(videoId);
-      
-      // Extract title from first transcript segment or use default
-      const title = `YouTube Video ${videoId}`;
 
       // Create video document
       const video = await Video.create({

@@ -8,7 +8,8 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - **Backend**: Express.js + Node.js
 - **Database**: MongoDB Atlas with Vector Search
 - **AI**: OpenAI GPT-5 (chat) + text-embedding-3-small (embeddings - 1536 dimensions)
-- **Transcript Extraction**: youtube-transcript package
+- **Video Metadata**: youtubei.js (actively maintained, latest InnerTube API)
+- **Transcript Extraction**: youtube-transcript (robust language fallback)
 
 ## Features
 - ✅ YouTube video import with automatic transcript extraction
@@ -104,6 +105,10 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - Professional color scheme with primary blue accent
 
 ## Recent Changes
+- **Enhanced video fetching** - Hybrid approach using youtubei.js for metadata (title, duration) + youtube-transcript for robust transcript extraction
+- Added multi-language retry logic (en, en-US, en-GB, en-CA, en-AU, auto-detect)
+- Improved error handling with detailed logging for debugging
+- Fixed type safety in MongoDB connection (proper Mongoose types)
 - Implemented complete MVP with all core features
 - Fixed design guideline violations (removed hover scaling, added proper flex gaps)
 - Refactored mutations to use React Query with apiRequest
