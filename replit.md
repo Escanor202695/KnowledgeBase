@@ -1,35 +1,45 @@
 # Second Brain - AI Knowledge Base
 
 ## Project Overview
-A beautiful dark-mode AI-powered application that allows users to chat with their YouTube video knowledge base using MongoDB Atlas Vector Search and OpenAI GPT-5.
+A beautiful dark-mode AI-powered application that allows users to chat with their multi-source knowledge base using MongoDB Atlas Vector Search and OpenAI GPT-4. Import YouTube videos, articles, documents (PDF/DOCX/TXT), and audio files into one unified AI-powered knowledge system.
 
 ## Tech Stack
 - **Frontend**: React + TypeScript + Tailwind CSS + shadcn/ui (dark mode)
-- **Backend**: Express.js + Node.js
+- **Backend**: Express.js + Node.js + Multer (file uploads)
 - **Database**: MongoDB Atlas with Vector Search
-- **AI**: OpenAI GPT-5 (chat) + text-embedding-3-small (embeddings - 1536 dimensions)
+- **AI**: OpenAI GPT-4o-mini (chat) + text-embedding-3-small (embeddings - 1536 dimensions) + Whisper (audio transcription)
 - **Video & Transcript**: youtubei.js (actively maintained InnerTube API for metadata + transcripts)
+- **Document Processing**: pdf-parse (PDF), mammoth (DOCX), native fs (TXT)
 
 ## Features
+- ✅ **Multi-source import system**: YouTube videos, text/articles, documents (PDF/DOCX/TXT), audio files
 - ✅ YouTube video import with automatic transcript extraction
+- ✅ Direct text/article import with optional source URL and author
+- ✅ Document upload and text extraction (PDF, DOCX, TXT)
+- ✅ Audio file upload with automatic Whisper transcription (MP3, WAV, M4A, etc.)
 - ✅ Intelligent text chunking (1200 chars with 200 char overlap)
-- ✅ Vector embeddings generation and storage
+- ✅ Vector embeddings generation and storage for all source types
 - ✅ AI-powered chat with RAG (Retrieval Augmented Generation)
-- ✅ Semantic search using MongoDB Atlas Vector Search
+- ✅ Semantic search using MongoDB Atlas Vector Search across all sources
 - ✅ Source citations with clickable YouTube timestamps
 - ✅ Beautiful dark mode interface with professional design
+- ✅ Tabbed import interface for easy source type selection
 - ✅ Real-time loading states and error handling
 - ✅ Responsive design for all screen sizes
 
 ## Architecture
 
 ### Data Flow
-1. **Import Flow**: YouTube URL → Transcript Extraction → Text Chunking → Embedding Generation → MongoDB Storage
-2. **Chat Flow**: User Question → Query Embedding → Vector Search → Context Building → AI Response → Source Citations
+1. **YouTube Import**: URL → youtubei.js metadata + transcript → Text Chunking → Embedding Generation → MongoDB Storage
+2. **Text Import**: Title + Content → Text Chunking → Embedding Generation → MongoDB Storage
+3. **Document Import**: File Upload → Text Extraction (PDF/DOCX/TXT) → Text Chunking → Embedding Generation → MongoDB Storage
+4. **Audio Import**: File Upload → Whisper Transcription → Text Chunking → Embedding Generation → MongoDB Storage
+5. **Chat Flow**: User Question → Query Embedding → Vector Search (all sources) → Context Building → AI Response → Source Citations
 
 ### MongoDB Collections
-- **videos**: Stores video metadata (youtube_id, title, thumbnail, duration)
-- **chunks**: Stores transcript chunks with 1536-dimensional embeddings
+- **sources**: Unified collection for all source types (youtube, text, document, audio) with metadata
+- **videos**: Legacy collection for backwards compatibility with old YouTube imports
+- **chunks**: Stores content chunks with 1536-dimensional embeddings, references source_id
 
 ### Vector Search Configuration
 - **Index Name**: `vector_index`
@@ -77,21 +87,34 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 
 ### Frontend (client/src/)
 - `components/Header.tsx`: Sticky header with branding
-- `components/VideoInput.tsx`: YouTube URL input with React Query mutation
-- `components/VideoLibrary.tsx`: Grid display of imported videos
+- `components/SourceImporter.tsx`: **NEW** Multi-tab import interface (YouTube, Text, Document, Audio)
+- `components/SourceLibrary.tsx`: **NEW** Grid display of all imported sources with type badges
+- `components/VideoInput.tsx`: Legacy YouTube-only input (deprecated, kept for reference)
+- `components/VideoLibrary.tsx`: Legacy video-only display (deprecated, kept for reference)
 - `components/ChatInterface.tsx`: AI chat with message history
 - `components/SourceCitation.tsx`: Clickable timestamp citations
-- `pages/Home.tsx`: Main application layout
+- `pages/Home.tsx`: Main application layout using new multi-source components
 - `App.tsx`: Root component with routing
 
 ### Backend (server/)
-- `routes.ts`: API routes for video import, chat, and video listing
+- `routes.ts`: API routes for all import types, chat, and source listing
+  - POST `/api/import-video` - YouTube video import
+  - POST `/api/import-text` - Direct text/article import
+  - POST `/api/import-document` - Document upload (PDF/DOCX/TXT)
+  - POST `/api/import-audio` - Audio upload with Whisper transcription
+  - POST `/api/chat` - AI chat with RAG
+  - GET `/api/sources` - List all sources (unified)
+  - GET `/api/videos` - List videos only (backwards compatibility)
 - `lib/mongodb.ts`: MongoDB connection with caching
-- `lib/models/Video.ts`: Mongoose video model
-- `lib/models/Chunk.ts`: Mongoose chunk model with embeddings
-- `lib/openai.ts`: OpenAI client for embeddings and chat
+- `lib/models/Source.ts`: **NEW** Unified source model (youtube, text, document, audio)
+- `lib/models/Video.ts`: Legacy video model (backwards compatibility)
+- `lib/models/Chunk.ts`: Chunk model with embeddings (references source_id)
+- `lib/openai.ts`: OpenAI client for embeddings, chat, and Whisper transcription
 - `lib/youtube.ts`: YouTube URL parsing utilities
-- `lib/chunking.ts`: Text chunking algorithm
+- `lib/chunking.ts`: Text chunking algorithm (works for all source types)
+- `lib/documentProcessor.ts`: **NEW** PDF/DOCX/TXT text extraction
+- `lib/audioProcessor.ts`: **NEW** Whisper API audio transcription
+- `lib/upload.ts`: **NEW** Multer file upload middleware
 
 ### Shared (shared/)
 - `schema.ts`: TypeScript types and Zod validation schemas
@@ -103,8 +126,27 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - Responsive grid layouts for video library
 - Professional color scheme with primary blue accent
 
-## Recent Changes
-- **Migrated to youtubei.js exclusively** - Using InnerTube API for both video metadata AND transcript extraction (single source, actively maintained)
+## Recent Changes (Latest Session)
+- **MAJOR: Multi-source knowledge base support** - Expanded from YouTube-only to support text, documents, and audio
+- Created unified Source model replacing Video model (backwards compatible)
+- Implemented 4 new import endpoints: text, document, audio, unified sources listing
+- Created SourceImporter component with tabbed interface for all import types
+- Created SourceLibrary component displaying all sources with type badges and icons
+- Integrated Whisper API for automatic audio transcription
+- Integrated pdf-parse, mammoth for document text extraction
+- Added Multer middleware for file upload handling
+- Updated Home page to use new multi-source components
+- All source types use same chunking → embedding → vector search pipeline
+- Maintained backwards compatibility with existing Video/Chunk models
+
+### Critical Architecture Updates
+- **Vector search enhanced**: Aggregation pipeline now looks up from both sources and videos collections with proper metadata handling for all source types
+- **Chat system updated**: System prompt and context building handle YouTube, text, document, and audio sources with proper citations
+- **File serving configured**: Express static middleware serves uploaded files from /uploads directory
+- **Source metadata**: Vector search properly extracts author, source_type, and URLs for all source types
+
+## Previous Changes
+- Migrated to youtubei.js exclusively - Using InnerTube API for both video metadata AND transcript extraction (single source, actively maintained)
 - Implemented singleton YouTube client for better performance across requests
 - Improved error handling with detailed logging for debugging
 - Fixed type safety in MongoDB connection (proper Mongoose types) and React Query mutations
@@ -117,8 +159,12 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 ## Known Requirements
 - MongoDB Atlas IP whitelist must include Replit's IP addresses
 - Vector search index must be created manually (cannot be automated)
-- Videos must have captions/transcripts available
+- YouTube videos must have captions/transcripts available
 - Large videos may take 30-60 seconds to process
+- Audio files are transcribed using Whisper API (costs apply per minute)
+- Uploaded files are stored in `uploads/` directory (ensure sufficient disk space)
+- Document extraction requires readable PDFs (not scanned images without OCR)
+- Maximum file upload sizes: documents 10MB, audio 25MB (configurable in upload.ts)
 
 ## User Preferences
 - Full dark mode application

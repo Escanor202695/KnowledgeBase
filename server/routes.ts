@@ -1,13 +1,26 @@
 import type { Express } from "express";
+import express from "express";
+import path from "path";
 import { createServer, type Server } from "http";
 import { Innertube } from 'youtubei.js';
+import { promises as fs } from 'fs';
 import connectDB from "./lib/mongodb";
 import Video from "./lib/models/Video";
+import Source from "./lib/models/Source";
 import Chunk from "./lib/models/Chunk";
 import { extractVideoId, getYoutubeThumbnail } from "./lib/youtube";
 import { createChunks, calculateDuration } from "./lib/chunking";
 import { generateEmbeddings, chatCompletion, generateEmbedding } from "./lib/openai";
-import { importVideoSchema, chatSchema } from "@shared/schema";
+import { extractDocumentText, generateDocumentTitle } from "./lib/documentProcessor";
+import { transcribeAudio, estimateAudioDuration, generateAudioTitle } from "./lib/audioProcessor";
+import { uploadDocument, uploadAudio } from "./lib/upload";
+import { 
+  importVideoSchema, 
+  importTextSchema, 
+  importDocumentSchema,
+  importAudioSchema,
+  chatSchema 
+} from "@shared/schema";
 
 // Initialize YouTube client once at module scope for better performance
 let youtubeClient: Innertube | null = null;
@@ -19,6 +32,10 @@ async function getYoutubeClient() {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Serve uploaded files statically
+  const uploadsPath = path.join(process.cwd(), 'uploads');
+  app.use('/uploads', express.static(uploadsPath));
+  
   // Connect to MongoDB (non-blocking to allow app to start)
   connectDB().catch(err => {
     console.error('❌ MongoDB connection failed:', err.message);
@@ -168,6 +185,245 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/import-text - Import direct text/article
+  app.post("/api/import-text", async (req, res) => {
+    try {
+      await connectDB();
+      
+      const validation = importTextSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request",
+          details: validation.error.errors 
+        });
+      }
+
+      const { title, content, author, url } = validation.data;
+
+      console.log(`📄 Importing text: "${title}"`);
+
+      // Create source document
+      const source = await Source.create({
+        source_type: 'text',
+        title,
+        content,
+        author,
+        url: url || undefined,
+      });
+
+      // Create chunks from the text content
+      const textTranscript = [{ text: content, offset: 0, duration: 0 }];
+      const chunks = createChunks(textTranscript);
+      
+      if (chunks.length === 0) {
+        await Source.deleteOne({ _id: source._id });
+        return res.status(400).json({ 
+          error: "Failed to process text content." 
+        });
+      }
+
+      // Generate embeddings
+      const chunkTexts = chunks.map(c => c.content);
+      console.log(`  🔢 Generating embeddings for ${chunkTexts.length} chunks...`);
+      const embeddings = await generateEmbeddings(chunkTexts);
+
+      // Create chunk documents
+      const chunkDocuments = chunks.map((chunk, index) => ({
+        source_id: source._id,
+        video_id: source._id, // For backwards compatibility
+        content: chunk.content,
+        embedding: embeddings[index],
+        start_time: chunk.start_time,
+        chunk_index: chunk.chunk_index,
+      }));
+
+      await Chunk.insertMany(chunkDocuments);
+
+      console.log(`✅ Imported text with ${chunks.length} chunks`);
+
+      return res.json({ 
+        success: true, 
+        sourceId: String(source._id)
+      });
+    } catch (error: any) {
+      console.error('Import text error:', error);
+      return res.status(500).json({ 
+        error: error.message || "Failed to import text. Please try again." 
+      });
+    }
+  });
+
+  // POST /api/import-document - Import PDF/DOCX/TXT file
+  app.post("/api/import-document", uploadDocument.single('file'), async (req, res) => {
+    try {
+      await connectDB();
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const { title: customTitle, author } = req.body;
+      const file = req.file;
+
+      console.log(`📄 Processing document: ${file.originalname}`);
+
+      // Extract text from document
+      let extractedText: string;
+      try {
+        extractedText = await extractDocumentText(file.path, file.mimetype);
+      } catch (error: any) {
+        // Clean up uploaded file
+        await fs.unlink(file.path).catch(() => {});
+        return res.status(400).json({ 
+          error: `Failed to extract text from document: ${error.message}` 
+        });
+      }
+
+      if (extractedText.length < 10) {
+        await fs.unlink(file.path).catch(() => {});
+        return res.status(400).json({ 
+          error: "Document appears to be empty or could not be read" 
+        });
+      }
+
+      // Generate title if not provided
+      const title = customTitle || generateDocumentTitle(extractedText, file.originalname);
+
+      // Create source document
+      const source = await Source.create({
+        source_type: 'document',
+        title,
+        content: extractedText,
+        file_url: file.path,
+        file_type: file.mimetype,
+        author,
+      });
+
+      // Create chunks
+      const textTranscript = [{ text: extractedText, offset: 0, duration: 0 }];
+      const chunks = createChunks(textTranscript);
+
+      // Generate embeddings
+      const chunkTexts = chunks.map(c => c.content);
+      console.log(`  🔢 Generating embeddings for ${chunkTexts.length} chunks...`);
+      const embeddings = await generateEmbeddings(chunkTexts);
+
+      // Create chunk documents
+      const chunkDocuments = chunks.map((chunk, index) => ({
+        source_id: source._id,
+        video_id: source._id,
+        content: chunk.content,
+        embedding: embeddings[index],
+        start_time: chunk.start_time,
+        chunk_index: chunk.chunk_index,
+      }));
+
+      await Chunk.insertMany(chunkDocuments);
+
+      console.log(`✅ Imported document "${title}" with ${chunks.length} chunks`);
+
+      return res.json({ 
+        success: true, 
+        sourceId: String(source._id)
+      });
+    } catch (error: any) {
+      console.error('Import document error:', error);
+      // Clean up file if it exists
+      if (req.file) {
+        await fs.unlink(req.file.path).catch(() => {});
+      }
+      return res.status(500).json({ 
+        error: error.message || "Failed to import document. Please try again." 
+      });
+    }
+  });
+
+  // POST /api/import-audio - Import and transcribe audio file
+  app.post("/api/import-audio", uploadAudio.single('file'), async (req, res) => {
+    try {
+      await connectDB();
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const { title: customTitle, author } = req.body;
+      const file = req.file;
+
+      console.log(`🎤 Processing audio: ${file.originalname}`);
+
+      // Transcribe audio using Whisper
+      let transcription: string;
+      try {
+        transcription = await transcribeAudio(file.path);
+      } catch (error: any) {
+        await fs.unlink(file.path).catch(() => {});
+        return res.status(400).json({ 
+          error: `Failed to transcribe audio: ${error.message}` 
+        });
+      }
+
+      if (transcription.length < 10) {
+        await fs.unlink(file.path).catch(() => {});
+        return res.status(400).json({ 
+          error: "Audio transcription appears to be empty" 
+        });
+      }
+
+      // Generate title if not provided
+      const title = customTitle || generateAudioTitle(file.originalname);
+      const duration = estimateAudioDuration(file.size);
+
+      // Create source document
+      const source = await Source.create({
+        source_type: 'audio',
+        title,
+        content: transcription,
+        file_url: file.path,
+        file_type: file.mimetype,
+        duration,
+        author,
+      });
+
+      // Create chunks
+      const textTranscript = [{ text: transcription, offset: 0, duration: 0 }];
+      const chunks = createChunks(textTranscript);
+
+      // Generate embeddings
+      const chunkTexts = chunks.map(c => c.content);
+      console.log(`  🔢 Generating embeddings for ${chunkTexts.length} chunks...`);
+      const embeddings = await generateEmbeddings(chunkTexts);
+
+      // Create chunk documents
+      const chunkDocuments = chunks.map((chunk, index) => ({
+        source_id: source._id,
+        video_id: source._id,
+        content: chunk.content,
+        embedding: embeddings[index],
+        start_time: chunk.start_time,
+        chunk_index: chunk.chunk_index,
+      }));
+
+      await Chunk.insertMany(chunkDocuments);
+
+      console.log(`✅ Imported audio "${title}" with ${chunks.length} chunks`);
+
+      return res.json({ 
+        success: true, 
+        sourceId: String(source._id)
+      });
+    } catch (error: any) {
+      console.error('Import audio error:', error);
+      // Clean up file if it exists
+      if (req.file) {
+        await fs.unlink(req.file.path).catch(() => {});
+      }
+      return res.status(500).json({ 
+        error: error.message || "Failed to import audio. Please try again." 
+      });
+    }
+  });
+
   // POST /api/chat - Chat with RAG using vector search
   app.post("/api/chat", async (req, res) => {
     try {
@@ -227,6 +483,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             score: { $gte: 0.65 }  // Similarity threshold - balanced between precision and recall
           }
         },
+        // Try to lookup from sources collection first (new unified model)
+        {
+          $lookup: {
+            from: "sources",
+            localField: "source_id",
+            foreignField: "_id",
+            as: "source",
+          },
+        },
+        // Also lookup from videos collection for backwards compatibility
         {
           $lookup: {
             from: "videos",
@@ -235,19 +501,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             as: "video",
           },
         },
+        // Use source if available, otherwise fall back to video
         {
-          $unwind: "$video",
+          $addFields: {
+            sourceData: {
+              $cond: {
+                if: { $gt: [{ $size: "$source" }, 0] },
+                then: { $arrayElemAt: ["$source", 0] },
+                else: { $arrayElemAt: ["$video", 0] }
+              }
+            }
+          }
+        },
+        // Filter out chunks that don't have either source or video
+        {
+          $match: {
+            sourceData: { $exists: true, $ne: null }
+          }
         },
         {
           $project: {
             content: 1,
             start_time: 1,
             score: 1,
-            video_id: "$video._id",
-            video_title: "$video.title",
-            video_youtube_id: "$video.youtube_id",
-            video_channel: "$video.channel_name",
-            video_thumbnail: "$video.thumbnail_url",
+            source_type: { $ifNull: ["$sourceData.source_type", "youtube"] },
+            video_id: "$sourceData._id",
+            video_title: "$sourceData.title",
+            video_youtube_id: "$sourceData.youtube_id",
+            video_channel: { $ifNull: ["$sourceData.author", "$sourceData.channel_name"] },
+            video_thumbnail: "$sourceData.thumbnail_url",
+            source_url: "$sourceData.url",
           },
         },
         ]);
@@ -287,18 +570,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Build context from top chunks
+      // Build context from top chunks with source type awareness
       const context = results
-        .map((r, i) => `[${r.video_title} - ${formatTimestamp(r.start_time)}]\n${r.content}`)
+        .map((r, i) => {
+          const sourceLabel = r.source_type === 'youtube' 
+            ? `${r.video_title} (Video)`
+            : r.source_type === 'text'
+            ? `${r.video_title} (Article)`
+            : r.source_type === 'document'
+            ? `${r.video_title} (Document)`
+            : r.source_type === 'audio'
+            ? `${r.video_title} (Audio)`
+            : r.video_title;
+          
+          return `[${sourceLabel}${r.video_channel ? ' by ' + r.video_channel : ''}]\n${r.content}`;
+        })
         .join('\n\n---\n\n');
 
       // Create system prompt
-      const systemPrompt = `You are a helpful AI assistant with access to a knowledge base of YouTube video transcripts.
+      const systemPrompt = `You are a helpful AI assistant with access to a multi-source knowledge base including YouTube videos, articles, documents, and audio transcriptions.
 
 INSTRUCTIONS:
 1. Answer questions using ONLY the information in the provided context
 2. If the context doesn't contain the answer, say "I don't have information about that in the knowledge base"
-3. Cite sources naturally in your answer using the format: [Video Title - Timestamp]
+3. Cite sources naturally in your answer by mentioning the source title
 4. Be conversational and concise
 5. Do not make up information
 
@@ -367,7 +662,7 @@ ${context}`;
     }
   });
 
-  // GET /api/videos - List all videos
+  // GET /api/videos - List all videos (backwards compatibility)
   app.get("/api/videos", async (req, res) => {
     try {
       // Ensure MongoDB is connected
@@ -387,6 +682,55 @@ ${context}`;
       console.error('List videos error:', error);
       return res.status(500).json({ 
         error: "Failed to fetch videos" 
+      });
+    }
+  });
+
+  // GET /api/sources - List all sources (videos, text, documents, audio)
+  app.get("/api/sources", async (req, res) => {
+    try {
+      await connectDB();
+      
+      // Get all sources
+      const sources = await Source.find()
+        .sort({ created_at: -1 })
+        .lean();
+
+      // Also get old videos for backwards compatibility
+      const oldVideos = await Video.find()
+        .sort({ created_at: -1 })
+        .lean();
+
+      // Convert old videos to source format
+      const videosAsSources = oldVideos.map(v => ({
+        _id: v._id.toString(),
+        source_type: 'youtube',
+        title: v.title,
+        youtube_id: v.youtube_id,
+        thumbnail_url: v.thumbnail_url,
+        duration: v.duration,
+        channel_name: v.channel_name,
+        created_at: v.created_at,
+      }));
+
+      // Combine and return all sources
+      const allSources = [
+        ...sources.map(s => ({
+          ...s,
+          _id: s._id.toString(),
+        })),
+        ...videosAsSources
+      ].sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+
+      return res.json({ sources: allSources });
+    } catch (error: any) {
+      console.error('List sources error:', error);
+      return res.status(500).json({ 
+        error: "Failed to fetch sources" 
       });
     }
   });

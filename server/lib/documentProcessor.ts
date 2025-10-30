@@ -1,4 +1,3 @@
-import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { promises as fs } from 'fs';
 
@@ -7,6 +6,8 @@ import { promises as fs } from 'fs';
  */
 export async function extractPdfText(filePath: string): Promise<string> {
   try {
+    // Dynamic import for pdf-parse to handle CommonJS module
+    const pdfParse = (await import('pdf-parse')).default;
     const dataBuffer = await fs.readFile(filePath);
     const data = await pdfParse(dataBuffer);
     return data.text;
