@@ -1,7 +1,8 @@
 import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 
 export interface IChunk extends Document {
-  video_id: Types.ObjectId;
+  source_id: Types.ObjectId;  // New field for Source reference
+  video_id?: Types.ObjectId;  // Legacy field for backwards compatibility
   content: string;
   embedding: number[];
   start_time: number;
@@ -10,10 +11,15 @@ export interface IChunk extends Document {
 }
 
 const ChunkSchema = new Schema<IChunk>({
+  source_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'Source',
+    required: true,
+    index: true,
+  },
   video_id: {
     type: Schema.Types.ObjectId,
     ref: 'Video',
-    required: true,
     index: true,
   },
   content: {
@@ -38,8 +44,9 @@ const ChunkSchema = new Schema<IChunk>({
   },
 });
 
-// Compound index for efficient queries
-ChunkSchema.index({ video_id: 1, chunk_index: 1 });
+// Compound indexes for efficient queries
+ChunkSchema.index({ source_id: 1, chunk_index: 1 });
+ChunkSchema.index({ video_id: 1, chunk_index: 1 }); // Legacy index for backwards compatibility
 
 const Chunk: Model<IChunk> = mongoose.models.Chunk || mongoose.model<IChunk>('Chunk', ChunkSchema);
 
