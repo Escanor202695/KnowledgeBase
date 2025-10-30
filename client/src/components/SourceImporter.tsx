@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -208,14 +207,10 @@ export function SourceImporter() {
     importAudioMutation.isPending;
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Import Knowledge</CardTitle>
-        <CardDescription>
-          Add videos, articles, documents, or audio to your knowledge base
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <div className="w-full space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Add videos, articles, documents, or audio to your knowledge base
+      </p>
         <Tabs defaultValue="youtube" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="youtube" data-testid="tab-youtube">
@@ -425,7 +420,6 @@ export function SourceImporter() {
             </form>
           </TabsContent>
         </Tabs>
-      </CardContent>
-    </Card>
+    </div>
   );
 }

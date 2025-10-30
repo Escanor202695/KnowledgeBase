@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Youtube, FileText, Upload, Mic, ExternalLink, Clock, File, FileAudio } from 'lucide-react';
 import type { Source } from '@shared/schema';
@@ -76,34 +76,24 @@ export function SourceLibrary() {
 
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Knowledge Base</CardTitle>
-          <CardDescription>Loading sources...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="animate-pulse">
-                <div className="h-48 bg-muted rounded-md" />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div>
+        <p className="text-sm text-muted-foreground mb-4">Loading sources...</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="animate-pulse">
+              <div className="h-48 bg-muted rounded-md" />
+            </div>
+          ))}
+        </div>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Knowledge Base</CardTitle>
-          <CardDescription className="text-destructive">
-            Failed to load sources
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <div>
+        <p className="text-sm text-destructive">Failed to load sources</p>
+      </div>
     );
   }
 
@@ -111,27 +101,20 @@ export function SourceLibrary() {
 
   if (sources.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Knowledge Base</CardTitle>
-          <CardDescription>
-            No sources yet. Import your first video, article, document, or audio file above.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <div>
+        <p className="text-sm text-muted-foreground">
+          No sources yet. Import your first video, article, document, or audio file above.
+        </p>
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Your Knowledge Base</CardTitle>
-        <CardDescription>
-          {sources.length} {sources.length === 1 ? 'source' : 'sources'} imported
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {sources.length} {sources.length === 1 ? 'source' : 'sources'} imported
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {sources.map((source) => {
             const youtubeUrl = getYouTubeUrl(source.youtube_id);
             const isYouTube = source.source_type === 'youtube';
@@ -252,8 +235,7 @@ export function SourceLibrary() {
               </Card>
             );
           })}
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

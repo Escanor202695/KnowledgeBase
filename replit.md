@@ -24,6 +24,7 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - ✅ Source citations with clickable YouTube timestamps
 - ✅ Beautiful dark mode interface with professional design
 - ✅ Tabbed import interface for easy source type selection
+- ✅ **Collapsible left panel sections**: Accordion-style Import Knowledge and Knowledge Base sections for better space management
 - ✅ Real-time loading states and error handling
 - ✅ Responsive design for all screen sizes
 
@@ -127,6 +128,17 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - Professional color scheme with primary blue accent
 
 ## Recent Changes (Latest Session)
+- **Collapsible Left Panel Sections** ✅:
+  - **Accordion-style UI**: Replaced fixed sections with shadcn Accordion component
+    - Import Knowledge and Knowledge Base sections now collapse/expand
+    - Only one section can be expanded at a time (exclusive behavior)
+    - Expanded section takes full available height (flex-1)
+    - Collapsed section shows only header (flex-shrink-0)
+    - Default state: Knowledge Base expanded
+    - Clean hover states on section headers
+  - **Space Optimization**: Addresses user concern that Import Knowledge was taking too much space
+    - Users can now easily toggle between importing and browsing their knowledge base
+    - Better use of vertical screen space
 - **UI Fixes - All Completed** ✅:
   - **YouTube Duration Bug Fixed**: youtubei.js returns milliseconds but code treated as seconds
     - Backend fix (server/routes.ts): Convert API duration from ms to seconds via Math.floor(duration/1000)

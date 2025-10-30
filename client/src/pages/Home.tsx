@@ -2,6 +2,8 @@ import { Header } from "@/components/Header";
 import { SourceImporter } from "@/components/SourceImporter";
 import { SourceLibrary } from "@/components/SourceLibrary";
 import { ChatInterface } from "@/components/ChatInterface";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 export default function Home() {
   return (
@@ -9,17 +11,41 @@ export default function Home() {
       <Header />
       <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Left Panel - Source Input and Library */}
-          <div className="lg:col-span-2 flex flex-col gap-6 lg:h-[calc(100vh-8rem)]">
-            {/* Fixed Upload Section */}
-            <div className="flex-shrink-0">
-              <SourceImporter />
-            </div>
-            
-            {/* Scrollable Knowledge Base */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <SourceLibrary />
-            </div>
+          {/* Left Panel - Accordion Sections */}
+          <div className="lg:col-span-2 flex flex-col lg:h-[calc(100vh-8rem)]">
+            <Accordion type="single" defaultValue="library" collapsible className="flex flex-col flex-1 gap-3">
+              {/* Import Knowledge Section */}
+              <AccordionItem value="import" className="border-0 flex flex-col data-[state=open]:flex-1">
+                <Card className="flex flex-col h-full">
+                  <AccordionTrigger className="hover:no-underline p-0 [&[data-state=open]>div]:border-b">
+                    <CardHeader className="hover-elevate flex flex-row items-center justify-between p-4 w-full">
+                      <CardTitle className="text-base">Import Knowledge</CardTitle>
+                    </CardHeader>
+                  </AccordionTrigger>
+                  <AccordionContent className="flex-1 min-h-0 overflow-y-auto pb-0">
+                    <CardContent className="p-4 pt-4">
+                      <SourceImporter />
+                    </CardContent>
+                  </AccordionContent>
+                </Card>
+              </AccordionItem>
+
+              {/* Knowledge Base Section */}
+              <AccordionItem value="library" className="border-0 flex flex-col data-[state=open]:flex-1">
+                <Card className="flex flex-col h-full">
+                  <AccordionTrigger className="hover:no-underline p-0 [&[data-state=open]>div]:border-b">
+                    <CardHeader className="hover-elevate flex flex-row items-center justify-between p-4 w-full">
+                      <CardTitle className="text-base">Your Knowledge Base</CardTitle>
+                    </CardHeader>
+                  </AccordionTrigger>
+                  <AccordionContent className="flex-1 min-h-0 overflow-y-auto pb-0">
+                    <CardContent className="p-4 pt-4">
+                      <SourceLibrary />
+                    </CardContent>
+                  </AccordionContent>
+                </Card>
+              </AccordionItem>
+            </Accordion>
           </div>
 
           {/* Right Panel - Chat Interface (Fixed) */}
