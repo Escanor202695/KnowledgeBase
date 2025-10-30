@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Youtube, FileText, Upload, Mic, ExternalLink, Clock } from 'lucide-react';
+import { Youtube, FileText, Upload, Mic, ExternalLink, Clock, File, FileAudio } from 'lucide-react';
 import type { Source } from '@shared/schema';
 
 interface SourcesResponse {
@@ -20,9 +20,9 @@ export function SourceLibrary() {
       case 'text':
         return <FileText className="w-5 h-5" />;
       case 'document':
-        return <Upload className="w-5 h-5" />;
+        return <File className="w-5 h-5" />;
       case 'audio':
-        return <Mic className="w-5 h-5" />;
+        return <FileAudio className="w-5 h-5" />;
       default:
         return <FileText className="w-5 h-5" />;
     }
@@ -43,10 +43,28 @@ export function SourceLibrary() {
     }
   };
 
+  const getPlaceholderIcon = (sourceType: string) => {
+    switch (sourceType) {
+      case 'text':
+        return <FileText className="w-16 h-16" />;
+      case 'document':
+        return <File className="w-16 h-16" />;
+      case 'audio':
+        return <FileAudio className="w-16 h-16" />;
+      default:
+        return <FileText className="w-16 h-16" />;
+    }
+  };
+
   const formatDuration = (seconds?: number) => {
     if (!seconds) return null;
-    const mins = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
     if (mins === 0) return `${secs}s`;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
@@ -64,10 +82,10 @@ export function SourceLibrary() {
           <CardDescription>Loading sources...</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[1, 2, 3].map((i) => (
               <div key={i} className="animate-pulse">
-                <div className="h-40 bg-muted rounded-md" />
+                <div className="h-48 bg-muted rounded-md" />
               </div>
             ))}
           </div>
@@ -113,7 +131,7 @@ export function SourceLibrary() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {sources.map((source) => {
             const youtubeUrl = getYouTubeUrl(source.youtube_id);
             const isYouTube = source.source_type === 'youtube';
@@ -124,9 +142,11 @@ export function SourceLibrary() {
                 className="overflow-hidden hover-elevate"
                 data-testid={`card-source-${source._id}`}
               >
-                {isYouTube && source.thumbnail_url && (
-                  <div className="relative aspect-video w-full overflow-hidden bg-muted">
-                    {youtubeUrl ? (
+                {/* Thumbnail or placeholder for all sources */}
+                <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                  {isYouTube && source.thumbnail_url ? (
+                    // YouTube thumbnail
+                    youtubeUrl ? (
                       <a 
                         href={youtubeUrl} 
                         target="_blank" 
@@ -148,9 +168,16 @@ export function SourceLibrary() {
                         className="w-full h-full object-cover"
                         data-testid={`img-thumbnail-${source._id}`}
                       />
-                    )}
-                  </div>
-                )}
+                    )
+                  ) : (
+                    // Placeholder icon for non-YouTube sources
+                    <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                      <div className={`${source.source_type === 'text' ? 'text-blue-500' : source.source_type === 'document' ? 'text-green-500' : 'text-purple-500'}`}>
+                        {getPlaceholderIcon(source.source_type)}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 
                 <CardHeader className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
@@ -162,7 +189,8 @@ export function SourceLibrary() {
                       {getSourceIcon(source.source_type)}
                       <span className="ml-1 capitalize">{source.source_type}</span>
                     </Badge>
-                    {source.duration && (
+                    {/* Only show duration for YouTube videos */}
+                    {isYouTube && source.duration && (
                       <Badge variant="secondary" className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {formatDuration(source.duration)}
