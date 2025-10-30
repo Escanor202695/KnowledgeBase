@@ -92,10 +92,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       try {
         const youtube = await getYoutubeClient();
-        const videoInfo = await youtube.getInfo(videoId);
+        let videoInfo;
         
-        // Extract metadata
-        title = videoInfo.basic_info?.title || title;
+        // Try getInfo() first, fallback to getBasicInfo() if parser errors occur
+        try {
+          videoInfo = await youtube.getInfo(videoId);
+        } catch (infoError: any) {
+          if (infoError.message?.includes('Type mismatch') || infoError.message?.includes('not found!')) {
+            console.log(`  ⚠️ Parser error in getInfo(), trying getBasicInfo()...`);
+            videoInfo = await youtube.getBasicInfo(videoId);
+          } else {
+            throw infoError;
+          }
+        }
+        
+        // Try multiple sources for the title (in order of preference)
+        const extractedTitle = 
+          videoInfo.basic_info?.title ||
+          videoInfo.basic_info?.short_description?.split('\n')[0] ||
+          (videoInfo as any).videoDetails?.title ||
+          (videoInfo as any).microformat?.playerMicroformatRenderer?.title?.simpleText ||
+          null;
+        
+        if (extractedTitle && extractedTitle.trim().length > 0) {
+          title = extractedTitle.trim();
+          console.log(`  ✅ Retrieved title: "${title}"`);
+        } else {
+          console.log(`  ⚠️ Could not extract title, using fallback: "${title}"`);
+        }
 
         // Use it in your code
         const durationFromAPI = videoInfo.basic_info?.duration || 0;
