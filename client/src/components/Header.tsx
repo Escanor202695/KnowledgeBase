@@ -58,7 +58,7 @@ export function Header() {
       <div className="max-w-[1600px] mx-auto flex h-16 items-center justify-between px-4 lg:px-8">
         <div className="flex items-center gap-2">
           <Brain className="h-6 w-6 text-primary" />
-          <span className="text-lg font-semibold">Second Brain</span>
+          <span className="text-lg font-semibold">Lazy Learning</span>
         </div>
         
         {!isAuthPage && (

@@ -1,4 +1,4 @@
-# Design Guidelines: Second Brain AI Knowledge Base
+# Design Guidelines: Lazy Learning AI Knowledge Base
 
 ## Design Approach
 

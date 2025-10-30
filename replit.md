@@ -1,4 +1,4 @@
-# Second Brain - AI Knowledge Base
+# Lazy Learning - AI Knowledge Base
 
 ## Overview
 A beautiful dark-mode AI-powered multi-user application enabling authenticated users to chat with their personal knowledge base. It unifies various content types—YouTube videos, articles, documents (PDF/DOCX/TXT), and audio files—into a single AI-driven system using MongoDB Atlas Vector Search and OpenAI GPT-4. The project aims to provide a comprehensive, intelligent knowledge management solution.

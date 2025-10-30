@@ -1,4 +1,4 @@
-# Second Brain - AI Knowledge Base
+# Lazy Learning - AI Knowledge Base
 
 Chat with your YouTube video knowledge base using AI-powered semantic search with MongoDB Atlas Vector Search and OpenAI.
 
@@ -69,7 +69,7 @@ The following secrets are required (already configured in Replit Secrets):
 The application is already running in Replit. Just:
 1. Make sure the workflow "Start application" is running
 2. Wait for MongoDB Atlas vector index to be active
-3. Open the web view to see your Second Brain app
+3. Open the web view to see your Lazy Learning app
 
 ## How to Use
 
