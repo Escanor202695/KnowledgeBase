@@ -19,7 +19,8 @@ export function VideoInput({ onVideoAdded }: VideoInputProps) {
 
   const importMutation = useMutation<ImportVideoResponse, Error, ImportVideoRequest>({
     mutationFn: async (data) => {
-      return apiRequest("POST", "/api/import-video", data);
+      const res = await apiRequest("POST", "/api/import-video", data);
+      return res.json();
     },
     onSuccess: () => {
       toast({

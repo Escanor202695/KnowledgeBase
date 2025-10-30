@@ -1,7 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { Innertube } from 'youtubei.js';
-import { YoutubeTranscript } from 'youtube-transcript';
 import connectDB from "./lib/mongodb";
 import Video from "./lib/models/Video";
 import Chunk from "./lib/models/Chunk";
@@ -62,76 +61,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Fetch video metadata using youtubei.js
-      console.log(`📝 Fetching video metadata for: ${videoId}`);
+      // Fetch video info and transcript using youtubei.js
+      console.log(`📝 Fetching video info and transcript for: ${videoId}`);
       let title = `YouTube Video ${videoId}`;
       let videoDurationSeconds = 0;
+      let transcript;
       
       try {
         const youtube = await getYoutubeClient();
-        const videoInfo = await youtube.getBasicInfo(videoId);
+        const videoInfo = await youtube.getInfo(videoId);
+        
+        // Extract metadata
         title = videoInfo.basic_info?.title || title;
         videoDurationSeconds = videoInfo.basic_info?.duration || 0;
         console.log(`  ✅ Retrieved metadata: "${title}" (${videoDurationSeconds}s)`);
-      } catch (error: any) {
-        console.log(`  ⚠️ Could not fetch metadata, using defaults: ${error.message}`);
-      }
-
-      // Fetch transcript with robust language fallback
-      console.log(`📝 Attempting to fetch transcript for video: ${videoId}`);
-      let transcript;
-      const languageCodes = ['en', 'en-US', 'en-GB', 'en-CA', 'en-AU'];
-      let lastError: any = null;
-      
-      // Try multiple language codes
-      for (const lang of languageCodes) {
-        try {
-          console.log(`  Trying language code: ${lang}`);
-          transcript = await YoutubeTranscript.fetchTranscript(videoId, { lang });
-          console.log(`  ✅ Successfully fetched transcript with ${lang} (${transcript.length} segments)`);
-          break;
-        } catch (error: any) {
-          console.log(`  ❌ Failed with ${lang}: ${error.message}`);
-          lastError = error;
-          continue;
-        }
-      }
-      
-      // If language-specific attempts failed, try without language parameter (auto-detect)
-      if (!transcript) {
-        try {
-          console.log(`  Trying auto-detect (no language specified)`);
-          transcript = await YoutubeTranscript.fetchTranscript(videoId);
-          console.log(`  ✅ Successfully fetched transcript with auto-detect (${transcript.length} segments)`);
-        } catch (error: any) {
-          console.log(`  ❌ Failed with auto-detect: ${error.message}`);
-          lastError = error;
-        }
-      }
-      
-      // Handle all failures
-      if (!transcript) {
-        console.error('❌ All transcript fetch attempts failed');
-        console.error('Last error:', lastError);
         
-        if (lastError?.message?.includes('disabled')) {
+        // Fetch transcript
+        console.log(`  📝 Fetching transcript...`);
+        const transcriptData = await videoInfo.getTranscript();
+        const segments = transcriptData.transcript?.content?.body?.initial_segments;
+        
+        if (!segments || segments.length === 0) {
+          return res.status(400).json({ 
+            error: "No transcript available for this video." 
+          });
+        }
+        
+        // Convert youtubei.js format to our expected format
+        transcript = segments.map((segment: any) => ({
+          text: segment.snippet?.text || '',
+          offset: segment.start_ms || 0,
+          duration: (segment.end_ms || segment.start_ms) - (segment.start_ms || 0)
+        }));
+        
+        console.log(`  ✅ Successfully fetched transcript (${transcript.length} segments)`);
+      } catch (error: any) {
+        console.error('❌ Failed to fetch video info or transcript:', error.message);
+        
+        if (error.message?.includes('Transcript is disabled') || error.message?.includes('disabled')) {
           return res.status(400).json({ 
             error: "Captions are disabled for this video." 
           });
         }
-        if (lastError?.message?.includes('private') || lastError?.message?.includes('unavailable')) {
+        if (error.message?.includes('private') || error.message?.includes('unavailable')) {
           return res.status(400).json({ 
             error: "This video is private or unavailable." 
           });
         }
         return res.status(400).json({ 
-          error: `Could not fetch transcript. ${lastError?.message || 'The video may not have captions available.'}` 
-        });
-      }
-
-      if (transcript.length === 0) {
-        return res.status(400).json({ 
-          error: "No transcript available for this video." 
+          error: `Could not fetch video information. ${error.message || 'The video may not exist or have captions available.'}` 
         });
       }
 

@@ -23,7 +23,8 @@ export function ChatInterface() {
 
   const chatMutation = useMutation<ChatResponse, Error, ChatRequest>({
     mutationFn: async (data) => {
-      return apiRequest("POST", "/api/chat", data);
+      const res = await apiRequest("POST", "/api/chat", data);
+      return res.json();
     },
     onSuccess: (data) => {
       const assistantMessage: ChatMessage = {
