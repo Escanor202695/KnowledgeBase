@@ -77,8 +77,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if video already exists
-      const existingVideo = await Video.findOne({ youtube_id: videoId });
-      if (existingVideo) {
+      const existingSource = await Source.findOne({ youtube_id: videoId });
+      if (existingSource) {
         return res.status(400).json({ 
           error: "This video has already been added to your knowledge base." 
         });
@@ -142,10 +142,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const duration = calculateDuration(transcript) || videoDurationSeconds;
       const thumbnailUrl = getYoutubeThumbnail(videoId);
 
-      // Create video document
-      const video = await Video.create({
-        youtube_id: videoId,
+      // Create source document for YouTube video
+      const source = await Source.create({
+        source_type: 'youtube',
         title,
+        youtube_id: videoId,
         thumbnail_url: thumbnailUrl,
         duration,
       });
@@ -154,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const chunks = createChunks(transcript);
       
       if (chunks.length === 0) {
-        await Video.deleteOne({ _id: video._id });
+        await Source.deleteOne({ _id: source._id });
         return res.status(400).json({ 
           error: "Failed to process video transcript." 
         });
@@ -168,7 +169,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Create chunk documents
       const chunkDocuments = chunks.map((chunk, index) => ({
-        video_id: video._id,
+        source_id: source._id,
+        video_id: source._id, // For backwards compatibility
         content: chunk.content,
         embedding: embeddings[index],
         start_time: chunk.start_time,
@@ -183,7 +185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return res.json({ 
         success: true, 
-        videoId: String(video._id)
+        sourceId: String(source._id)
       });
     } catch (error: any) {
       console.error('Import video error:', error);
