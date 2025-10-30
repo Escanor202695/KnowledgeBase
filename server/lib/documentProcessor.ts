@@ -1,6 +1,11 @@
 import mammoth from 'mammoth';
 import { promises as fs } from 'fs';
-import { PDFParse } from 'pdf-parse';
+import { createRequire } from 'module';
+
+// Use CommonJS require for pdf-parse since it doesn't have proper ESM exports
+// pdf-parse only exports via CommonJS (no default or named ESM exports)
+const require = createRequire(import.meta.url);
+const pdfParse: (dataBuffer: Buffer) => Promise<{ text: string }> = require('pdf-parse');
 
 /**
  * Extract text from PDF file
@@ -8,7 +13,7 @@ import { PDFParse } from 'pdf-parse';
 export async function extractPdfText(filePath: string): Promise<string> {
   try {
     const dataBuffer = await fs.readFile(filePath);
-    const data = await PDFParse(dataBuffer);
+    const data = await pdfParse(dataBuffer);
     
     if (!data.text || data.text.trim().length === 0) {
       throw new Error('PDF appears to be empty or contains only images (scanned PDF). Please use a text-based PDF or OCR the document first.');

@@ -1,0 +1,1 @@
+Machine learning models require large datasets for training. Deep neural networks have multiple hidden layers. Gradient descent optimizes model parameters.
