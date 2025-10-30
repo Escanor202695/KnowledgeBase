@@ -177,27 +177,27 @@ export function SourceLibrary() {
                       </div>
                     </div>
                   )}
-                </div>
-                
-                <CardHeader className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
+                  
+                  {/* Badges positioned at top-right corner */}
+                  <div className="absolute top-2 right-2 flex gap-2">
                     <Badge 
-                      variant="outline" 
-                      className={getSourceBadgeColor(source.source_type)}
+                      variant="secondary" 
+                      className={`text-xs ${getSourceBadgeColor(source.source_type)}`}
                       data-testid={`badge-type-${source._id}`}
                     >
-                      {getSourceIcon(source.source_type)}
-                      <span className="ml-1 capitalize">{source.source_type}</span>
+                      <span className="capitalize">{source.source_type}</span>
                     </Badge>
                     {/* Only show duration for YouTube videos */}
                     {isYouTube && source.duration && (
-                      <Badge variant="secondary" className="flex items-center gap-1">
+                      <Badge variant="secondary" className="text-xs flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {formatDuration(source.duration)}
                       </Badge>
                     )}
                   </div>
-                  
+                </div>
+                
+                <CardHeader className="space-y-2">
                   <CardTitle 
                     className="text-base line-clamp-2"
                     data-testid={`text-title-${source._id}`}
