@@ -1,7 +1,7 @@
 # Second Brain - AI Knowledge Base
 
 ## Project Overview
-A beautiful dark-mode AI-powered application that allows users to chat with their multi-source knowledge base using MongoDB Atlas Vector Search and OpenAI GPT-4. Import YouTube videos, articles, documents (PDF/DOCX/TXT), and audio files into one unified AI-powered knowledge system.
+A beautiful dark-mode AI-powered multi-user application that allows authenticated users to chat with their personal knowledge base using MongoDB Atlas Vector Search and OpenAI GPT-4. Import YouTube videos, articles, documents (PDF/DOCX/TXT), and audio files into one unified AI-powered knowledge system.
 
 ## Tech Stack
 - **Frontend**: React + TypeScript + Tailwind CSS + shadcn/ui (dark mode)
@@ -12,6 +12,7 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - **Document Processing**: pdfjs-dist (PDF - production-grade parser from Firefox), mammoth (DOCX), native fs (TXT)
 
 ## Features
+- ✅ **Multi-user authentication**: Secure login, signup, and session management with bcrypt password hashing
 - ✅ **Multi-source import system**: YouTube videos, text/articles, documents (PDF/DOCX/TXT), audio files
 - ✅ YouTube video import with automatic transcript extraction
 - ✅ Direct text/article import with optional source URL and author
@@ -30,6 +31,34 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 
 ## Architecture
 
+### Authentication System
+**Structure**:
+- **User Model**: MongoDB collection storing user credentials (email, password hash, name)
+- **Session Model**: MongoDB collection for session tokens with expiry tracking
+- **Auth Routes**: Login, signup, logout, forgot password, verify token endpoints (`server/routes/auth.ts`)
+- **Auth Middleware**: JWT-like token verification for protected routes (`server/middleware/auth.ts`)
+- **Protected Routes**: Frontend wrapper component that redirects unauthenticated users to login
+
+**Frontend Components**:
+- `Login.tsx`: Beautiful login page with email/password form
+- `Signup.tsx`: Registration page with strong password validation
+- `ForgotPassword.tsx`: Password reset flow with email confirmation
+- `ProtectedRoute.tsx`: HOC wrapper for authenticated-only pages
+- `Header.tsx`: User menu drawer with logout, settings, and help navigation
+
+**Security**:
+- bcryptjs for password hashing (installed)
+- Session tokens stored in localStorage and sent via Authorization header
+- Protected API routes verify session tokens via auth middleware
+- React Query cache cleared on logout
+
+**Implementation Status**:
+- ⚠️ **Backend functions are EMPTY stubs** - User will implement authentication logic later
+- ✅ All frontend pages designed and integrated
+- ✅ Auth routes registered in server/routes.ts
+- ✅ Token management integrated into React Query client
+- ✅ Protected route wrapper created and applied to Home page
+
 ### Data Flow
 1. **YouTube Import**: URL → youtubei.js metadata + transcript → Text Chunking → Embedding Generation → MongoDB Storage
 2. **Text Import**: Title + Content → Text Chunking → Embedding Generation → MongoDB Storage
@@ -38,6 +67,8 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 5. **Chat Flow**: User Question → Query Embedding → Vector Search (all sources) → Context Building → AI Response → Source Citations
 
 ### MongoDB Collections
+- **users**: User accounts (email, password hash, name)
+- **sessions**: Active user sessions (token, user_id, expires_at)
 - **sources**: Unified collection for all source types (youtube, text, document, audio) with metadata
 - **videos**: Legacy collection for backwards compatibility with old YouTube imports
 - **chunks**: Stores content chunks with 1536-dimensional embeddings, references source_id
@@ -82,12 +113,21 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 
 ### Environment Variables
 - `MONGODB_URI`: MongoDB Atlas connection string
-- `OPENAI_API_KEY`: OpenAI API key for GPT-5 and embeddings
+- `OPENAI_API_KEY`: OpenAI API key for GPT-4o-mini and embeddings
+- `SESSION_SECRET`: Secret key for session token generation (already configured)
 
 ## Project Structure
 
 ### Frontend (client/src/)
-- `components/Header.tsx`: Sticky header with branding
+
+**Authentication Pages**:
+- `pages/Login.tsx`: Login page with email/password form, "Forgot password?" link
+- `pages/Signup.tsx`: Registration page with strong password requirements
+- `pages/ForgotPassword.tsx`: Password reset flow with success confirmation
+- `components/ProtectedRoute.tsx`: HOC wrapper redirecting unauthenticated users
+
+**Main Application**:
+- `components/Header.tsx`: Sticky header with branding + user menu drawer (logout, settings, help)
 - `components/SourceImporter.tsx`: **NEW** Multi-tab import interface (YouTube, Text, Document, Audio)
 - `components/SourceLibrary.tsx`: **NEW** Grid display of all imported sources with type badges
 - `components/VideoInput.tsx`: Legacy YouTube-only input (deprecated, kept for reference)
@@ -95,9 +135,18 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - `components/ChatInterface.tsx`: AI chat with message history
 - `components/SourceCitation.tsx`: Clickable timestamp citations
 - `pages/Home.tsx`: Main application layout using new multi-source components
-- `App.tsx`: Root component with routing
+- `App.tsx`: Root component with public (login/signup) and protected routes
+- `lib/queryClient.ts`: React Query client with auth token injection in headers
 
 ### Backend (server/)
+
+**Authentication**:
+- `routes/auth.ts`: **EMPTY STUBS** - Auth endpoints (signup, login, logout, forgot password, verify token, get current user)
+- `middleware/auth.ts`: **EMPTY STUB** - JWT-like token verification middleware
+- `lib/models/User.ts`: MongoDB User schema (email, password, name)
+- `lib/models/Session.ts`: MongoDB Session schema (token, user_id, expires_at)
+
+**Main Application**:
 - `routes.ts`: API routes for all import types, chat, and source listing
   - POST `/api/import-video` - YouTube video import
   - POST `/api/import-text` - Direct text/article import
@@ -127,7 +176,33 @@ A beautiful dark-mode AI-powered application that allows users to chat with thei
 - Responsive grid layouts for video library
 - Professional color scheme with primary blue accent
 
-## Recent Changes (Latest Session)
+## Recent Changes (Latest Session - Authentication System)
+- **Multi-user Authentication System** ✅:
+  - **Backend Structure Created** (implementation pending):
+    - User and Session MongoDB models created
+    - Auth routes file with empty function stubs (signup, login, logout, forgot-password, verify-token, me)
+    - Auth middleware with empty verification function
+    - bcryptjs package installed for password hashing
+    - Auth routes registered in main server/routes.ts
+  - **Frontend Fully Implemented** ✅:
+    - Login page with email/password form and "Forgot password?" link
+    - Signup page with strong password validation (8+ chars, uppercase, lowercase, number)
+    - Forgot password page with success confirmation state
+    - User menu drawer in Header (logout, settings, help navigation)
+    - Protected route wrapper redirecting unauthenticated users to login
+    - App.tsx configured with public routes (/login, /signup, /forgot-password) and protected routes (/)
+    - React Query client updated to inject auth tokens in all API requests
+  - **Design Philosophy**:
+    - All auth pages follow design_guidelines.md (dark mode, Tailwind, shadcn/ui)
+    - Clean, centered card layouts with Brain logo branding
+    - Professional form validation with helpful error messages
+    - Consistent spacing and typography throughout
+  - **Next Steps** (for user):
+    - Implement backend auth functions (password hashing, token generation, session management)
+    - Connect auth middleware to protected API routes
+    - Add email service for forgot password functionality
+
+## Previous Session Changes
 - **Collapsible Left Panel Sections** ✅:
   - **Accordion-style UI**: Replaced fixed sections with shadcn Accordion component
     - Import Knowledge and Knowledge Base sections now collapse/expand
