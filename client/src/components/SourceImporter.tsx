@@ -89,8 +89,15 @@ export function SourceImporter() {
       if (data.title) formData.append('title', data.title);
       if (data.author) formData.append('author', data.author);
 
+      const token = localStorage.getItem('sessionToken');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('/api/import-document', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
@@ -128,8 +135,15 @@ export function SourceImporter() {
       if (data.title) formData.append('title', data.title);
       if (data.author) formData.append('author', data.author);
 
+      const token = localStorage.getItem('sessionToken');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('/api/import-audio', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
