@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { User } from '../lib/models/User';
+import UserPreferences from '../lib/models/UserPreferences';
 import { 
   hashPassword, 
   comparePassword, 
@@ -232,10 +233,18 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
 
     // Always return success to prevent email enumeration
     // In production, you would send an email with the reset link here
-    // For now, we'll log the token (only for development)
+    // For development, we'll include the reset link in the response
     if (result) {
+      const resetLink = `${req.protocol}://${req.get('host')}/reset-password?token=${result.token}`;
       console.log('Password reset token for', email, ':', result.token);
-      console.log('In production, send this via email to:', email);
+      console.log('Reset link:', resetLink);
+      
+      // In development, return the reset link so users can test it
+      // In production, you would send this via email instead
+      return res.status(200).json({
+        message: 'If an account exists with this email, you will receive password reset instructions.',
+        resetLink: process.env.NODE_ENV !== 'production' ? resetLink : undefined,
+      });
     }
 
     res.status(200).json({
@@ -270,8 +279,28 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
  */
 router.post('/reset-password', async (req: Request, res: Response) => {
   try {
-    // TODO: Implement reset password logic
-    res.status(501).json({ error: 'Reset password not implemented yet' });
+    const { token, newPassword } = req.body;
+
+    // Validate input
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Token and new password are required' });
+    }
+
+    // Validate password strength
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    // Reset password using token
+    const success = await resetPassword(token, newPassword);
+
+    if (!success) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    res.status(200).json({
+      message: 'Password has been reset successfully. You can now login with your new password.',
+    });
   } catch (error: any) {
     console.error('Reset password error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -361,6 +390,96 @@ router.post('/change-password', requireAuth, async (req: Request, res: Response)
     res.status(501).json({ error: 'Change password not implemented yet' });
   } catch (error: any) {
     console.error('Change password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/auth/preferences
+ * Get user AI preferences
+ */
+router.get('/preferences', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id || (req as any).session?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    let preferences = await UserPreferences.findOne({ userId });
+    
+    // If no preferences exist, return defaults
+    if (!preferences) {
+      preferences = {
+        userId,
+        temperature: 0.7,
+        maxTokens: 8192,
+        model: 'gpt-3.5-turbo',
+        defaultSystemPrompt: undefined,
+      } as any;
+    }
+
+    return res.json({
+      preferences: {
+        defaultSystemPrompt: preferences.defaultSystemPrompt || null,
+        temperature: preferences.temperature,
+        maxTokens: preferences.maxTokens,
+        model: preferences.model,
+      },
+    });
+  } catch (error: any) {
+    console.error('Get preferences error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/auth/preferences
+ * Update user AI preferences
+ */
+router.patch('/preferences', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id || (req as any).session?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { defaultSystemPrompt, temperature, maxTokens, model } = req.body;
+
+    // Validate temperature
+    if (temperature !== undefined && (temperature < 0 || temperature > 2)) {
+      return res.status(400).json({ error: 'Temperature must be between 0 and 2' });
+    }
+
+    // Validate maxTokens
+    if (maxTokens !== undefined && (maxTokens < 1000 || maxTokens > 16000)) {
+      return res.status(400).json({ error: 'Max tokens must be between 1000 and 16000' });
+    }
+
+    // Update or create preferences
+    const preferences = await UserPreferences.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          ...(defaultSystemPrompt !== undefined && { defaultSystemPrompt: defaultSystemPrompt.trim() || undefined }),
+          ...(temperature !== undefined && { temperature }),
+          ...(maxTokens !== undefined && { maxTokens }),
+          ...(model !== undefined && { model }),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    return res.json({
+      success: true,
+      preferences: {
+        defaultSystemPrompt: preferences.defaultSystemPrompt || null,
+        temperature: preferences.temperature,
+        maxTokens: preferences.maxTokens,
+        model: preferences.model,
+      },
+    });
+  } catch (error: any) {
+    console.error('Update preferences error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

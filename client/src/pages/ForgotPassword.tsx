@@ -31,13 +31,18 @@ export default function ForgotPassword() {
     },
   });
 
+  const [resetLink, setResetLink] = useState<string | null>(null);
+
   const forgotPasswordMutation = useMutation({
     mutationFn: async (data: ForgotPasswordForm) => {
       const response = await apiRequest('POST', '/api/auth/forgot-password', data);
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setEmailSent(true);
+      if (data.resetLink) {
+        setResetLink(data.resetLink);
+      }
     },
     onError: (error: any) => {
       toast({
@@ -73,11 +78,32 @@ export default function ForgotPassword() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Alert>
-                <AlertDescription>
-                  Didn't receive an email? Check your spam folder or try again in a few minutes.
-                </AlertDescription>
-              </Alert>
+              {resetLink && (
+                <Alert className="mb-4">
+                  <AlertDescription className="space-y-2">
+                    <p className="font-medium">Development Mode - Reset Link:</p>
+                    <a
+                      href={resetLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline break-all text-sm"
+                    >
+                      {resetLink}
+                    </a>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Click the link above to reset your password. In production, this would be sent via email.
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              )}
+              
+              {!resetLink && (
+                <Alert>
+                  <AlertDescription>
+                    Didn't receive an email? Check your spam folder or try again in a few minutes.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <Button
                 variant="outline"

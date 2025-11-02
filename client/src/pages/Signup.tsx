@@ -54,6 +54,7 @@ export default function Signup() {
       toast({
         title: "Account created!",
         description: "Welcome to Lazy Learning. Your account has been created successfully.",
+        variant: "success",
       });
       setLocation("/");
     },

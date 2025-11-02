@@ -26,6 +26,7 @@ export function VideoInput({ onVideoAdded }: VideoInputProps) {
       toast({
         title: "Success!",
         description: "Video imported and processed successfully",
+        variant: "success",
       });
       setUrl("");
       setError("");

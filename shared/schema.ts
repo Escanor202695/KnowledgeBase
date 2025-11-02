@@ -103,6 +103,7 @@ export interface ImportVideoResponse extends ImportResponse {
 
 export const chatSchema = z.object({
   message: z.string().min(1, "Message is required"),
+  conversationId: z.string().optional(),
 });
 
 export type ChatRequest = z.infer<typeof chatSchema>;
@@ -110,6 +111,7 @@ export type ChatRequest = z.infer<typeof chatSchema>;
 export interface ChatResponse {
   answer: string;
   sources: SourceCitation[];
+  conversationId?: string | null;
 }
 
 export interface SourcesResponse {

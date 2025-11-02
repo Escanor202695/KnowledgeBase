@@ -40,7 +40,7 @@ export function SourceCitation({ source }: SourceCitationProps) {
   const hasTimestamp = source.source_type === 'youtube' || source.source_type === 'audio';
 
   return (
-    <Card className="p-3 hover-elevate" data-testid={`card-source-${source.source_id}`}>
+    <Card className="p-3 hover-elevate cursor-pointer transition-all" data-testid={`card-source-${source.source_id}`}>
       <div className="flex items-start gap-3">
         {/* Thumbnail or Icon */}
         <div className="relative w-20 h-20 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
@@ -85,6 +85,7 @@ export function SourceCitation({ source }: SourceCitationProps) {
               rel="noopener noreferrer"
               className="text-xs text-primary hover:underline flex items-center gap-1 mt-1 hover:text-primary/80 transition-colors"
               data-testid={`link-source-timestamp-${source.source_id}`}
+              onClick={(e) => e.stopPropagation()}
             >
               <Play className="w-3 h-3" />
               Jump to {formatTimestamp(source.start_time)}

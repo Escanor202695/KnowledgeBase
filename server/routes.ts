@@ -8,7 +8,9 @@ import connectDB from "./lib/mongodb";
 import Video from "./lib/models/Video";
 import Source from "./lib/models/Source";
 import Chunk from "./lib/models/Chunk";
-import { extractVideoId, getYoutubeThumbnail } from "./lib/youtube";
+import Conversation from "./lib/models/Conversation";
+import UserPreferences from "./lib/models/UserPreferences";
+import { extractVideoId, extractPlaylistId, isShortsUrl, isPlaylistUrl, getYoutubeThumbnail } from "./lib/youtube";
 import { createChunks, calculateDuration } from "./lib/chunking";
 import { generateEmbeddings, chatCompletion, generateEmbedding } from "./lib/openai";
 import openai from "./lib/openai";
@@ -32,6 +34,211 @@ async function getYoutubeClient() {
     youtubeClient = await Innertube.create();
   }
   return youtubeClient;
+}
+
+/**
+ * Helper function to detect if a message is a question or information request
+ * Returns true if the message contains question words, ends with a question mark, or is an information request
+ */
+function isQuestion(message: string): boolean {
+  const trimmed = message.trim().toLowerCase();
+  
+  // Check if ends with question mark
+  if (trimmed.endsWith('?')) {
+    return true;
+  }
+  
+  // Check for question words at the start
+  const questionWords = ['what', 'how', 'why', 'when', 'where', 'who', 'which', 'can', 'could', 'would', 'should', 'is', 'are', 'do', 'does', 'did', 'will', 'was', 'were'];
+  const firstWord = trimmed.split(/\s+/)[0];
+  
+  if (questionWords.includes(firstWord)) {
+    return true;
+  }
+  
+  // Check for information request patterns (imperative questions)
+  const infoRequestPatterns = [
+    'tell me',
+    'explain',
+    'describe',
+    'show me',
+    'give me',
+    'help me',
+    'find',
+    'search',
+    'what is',
+    'what are',
+    'tell us',
+    'explain to me',
+  ];
+  
+  for (const pattern of infoRequestPatterns) {
+    if (trimmed.startsWith(pattern)) {
+      return true;
+    }
+  }
+  
+  // Check if message contains question indicators (more than just casual conversation)
+  if (trimmed.length > 10) {
+    // If message is substantial and not just greetings/small talk, treat as potential question
+    const casualGreetings = ['hello', 'hi', 'hey', 'thanks', 'thank you', 'ok', 'okay', 'yes', 'no', 'bye'];
+    const words = trimmed.split(/\s+/);
+    const isOnlyCasual = words.length <= 3 && casualGreetings.some(g => trimmed.includes(g));
+    
+    if (!isOnlyCasual) {
+      // If it's a substantial message (more than casual), likely an information request
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Helper function to generate a conversation title from the first message
+ */
+function generateConversationTitle(message: string): string {
+  // Take first 50 characters, trim to last complete word
+  const maxLength = 50;
+  if (message.length <= maxLength) {
+    return message.trim();
+  }
+  
+  const truncated = message.substring(0, maxLength);
+  const lastSpace = truncated.lastIndexOf(' ');
+  if (lastSpace > 0) {
+    return truncated.substring(0, lastSpace) + '...';
+  }
+  
+  return truncated + '...';
+}
+
+/**
+ * Helper function to import a single YouTube video
+ * Returns the source ID if successful, throws error otherwise
+ */
+async function importSingleVideo(videoId: string): Promise<string> {
+  await connectDB();
+  
+  // Check if video already exists
+  const existingSource = await Source.findOne({ youtube_id: videoId });
+  if (existingSource) {
+    throw new Error("This video has already been added to your knowledge base.");
+  }
+
+  console.log(`📝 Fetching video info and transcript for: ${videoId}`);
+  let title = `YouTube Video ${videoId}`;
+  let videoDurationSeconds = 0;
+  let transcript;
+  
+  const youtube = await getYoutubeClient();
+  let videoInfo;
+  
+  // Try getInfo() first, fallback to getBasicInfo() if parser errors occur
+  try {
+    videoInfo = await youtube.getInfo(videoId);
+  } catch (infoError: any) {
+    if (infoError.message?.includes('Type mismatch') || infoError.message?.includes('not found!')) {
+      console.log(`  ⚠️ Parser error in getInfo(), trying getBasicInfo()...`);
+      videoInfo = await youtube.getBasicInfo(videoId);
+    } else {
+      throw infoError;
+    }
+  }
+  
+  // Extract title using same logic as main endpoint
+  let extractedTitle = null;
+  
+  if (videoInfo.basic_info?.title) {
+    const titleValue = videoInfo.basic_info.title;
+    if (typeof titleValue === 'string') {
+      extractedTitle = titleValue;
+    } else if ((titleValue as any)?.text) {
+      extractedTitle = (titleValue as any).text;
+    } else if ((titleValue as any)?.simpleText) {
+      extractedTitle = (titleValue as any).simpleText;
+    } else if (Array.isArray((titleValue as any)?.runs) && (titleValue as any).runs.length > 0) {
+      extractedTitle = (titleValue as any).runs.map((run: any) => run.text || '').join('');
+    }
+  } else if ((videoInfo as any).primary_info?.title) {
+    const titleValue = (videoInfo as any).primary_info.title;
+    if (typeof titleValue === 'string') {
+      extractedTitle = titleValue;
+    } else if (titleValue?.text) {
+      extractedTitle = titleValue.text;
+    } else if (titleValue?.simpleText) {
+      extractedTitle = titleValue.simpleText;
+    } else if (Array.isArray(titleValue?.runs) && titleValue.runs.length > 0) {
+      extractedTitle = titleValue.runs.map((run: any) => run.text || '').join('');
+    }
+  } else if ((videoInfo as any).video?.title) {
+    extractedTitle = (videoInfo as any).video.title;
+  } else if ((videoInfo as any).video_details?.title) {
+    extractedTitle = (videoInfo as any).video_details.title;
+  } else if ((videoInfo as any).videoDetails?.title) {
+    extractedTitle = (videoInfo as any).videoDetails.title;
+  }
+  
+  if (extractedTitle && typeof extractedTitle === 'string' && extractedTitle.trim().length > 0) {
+    title = extractedTitle.trim();
+  }
+
+  const durationFromAPI = videoInfo.basic_info?.duration || 0;
+  videoDurationSeconds = Math.floor(durationFromAPI / 1000);
+  
+  // Fetch transcript
+  const transcriptData = await videoInfo.getTranscript();
+  const segments = transcriptData.transcript?.content?.body?.initial_segments;
+  
+  if (!segments || segments.length === 0) {
+    throw new Error("No transcript available for this video.");
+  }
+  
+  transcript = segments.map((segment: any) => ({
+    text: segment.snippet?.text || '',
+    offset: segment.start_ms || 0,
+    duration: (segment.end_ms || segment.start_ms) - (segment.start_ms || 0)
+  }));
+
+  const duration = calculateDuration(transcript) || videoDurationSeconds;
+  const thumbnailUrl = getYoutubeThumbnail(videoId);
+
+  // Create source document
+  const source = await Source.create({
+    source_type: 'youtube',
+    title,
+    youtube_id: videoId,
+    url: `https://youtube.com/watch?v=${videoId}`,
+    thumbnail_url: thumbnailUrl,
+    duration,
+  });
+
+  // Create chunks
+  const chunks = createChunks(transcript);
+  
+  if (chunks.length === 0) {
+    await Source.deleteOne({ _id: source._id });
+    throw new Error("Failed to process video transcript.");
+  }
+
+  // Generate embeddings
+  const chunkTexts = chunks.map(c => c.content);
+  const embeddings = await generateEmbeddings(chunkTexts);
+
+  // Create chunk documents
+  const chunkDocuments = chunks.map((chunk, index) => ({
+    source_id: source._id,
+    video_id: source._id,
+    content: chunk.content,
+    embedding: embeddings[index],
+    start_time: chunk.start_time,
+    chunk_index: chunk.chunk_index,
+  }));
+
+  await Chunk.insertMany(chunkDocuments);
+  console.log(`✅ Imported video ${videoId}: "${title}" (${chunks.length} chunks)`);
+  
+  return String(source._id);
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -68,12 +275,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { youtubeUrl } = validation.data;
 
-      // Extract video ID
-      const videoId = extractVideoId(youtubeUrl);
-      if (!videoId) {
+      console.log(`🔍 Processing YouTube URL: ${youtubeUrl}`);
+
+      // Check if this is a playlist URL
+      if (isPlaylistUrl(youtubeUrl)) {
+        console.log(`  ⚠️ Detected as playlist URL`);
         return res.status(400).json({ 
-          error: "Invalid YouTube URL. Please provide a valid YouTube video URL." 
+          error: "This is a playlist URL. Please use the /api/import-playlist endpoint to import playlists." 
         });
+      }
+
+      // Extract video ID (supports regular videos and Shorts)
+      const videoId = extractVideoId(youtubeUrl);
+      console.log(`  📝 Extracted video ID: ${videoId || 'NULL'}`);
+      
+      if (!videoId) {
+        console.log(`  ❌ Failed to extract video ID from URL: ${youtubeUrl}`);
+        return res.status(400).json({ 
+          error: "Invalid YouTube URL. Please provide a valid YouTube video or Shorts URL." 
+        });
+      }
+
+      // Check if it's a Shorts URL for logging
+      const isShort = isShortsUrl(youtubeUrl);
+      if (isShort) {
+        console.log(`📹 Detected YouTube Short: ${videoId}`);
+      } else {
+        console.log(`▶️ Processing as regular video: ${videoId}`);
       }
 
       // Check if video already exists
@@ -107,18 +335,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Try multiple sources for the title (in order of preference)
-        const extractedTitle = 
-          videoInfo.basic_info?.title ||
-          videoInfo.basic_info?.short_description?.split('\n')[0] ||
-          (videoInfo as any).videoDetails?.title ||
-          (videoInfo as any).microformat?.playerMicroformatRenderer?.title?.simpleText ||
-          null;
+        // youtubei.js structure can vary, so we check multiple possible paths
+        let extractedTitle = null;
         
-        if (extractedTitle && extractedTitle.trim().length > 0) {
+        // Method 1: Try getInfo() response structure - basic_info.title
+        // Title might be a string or an object with text/runs property
+        if (videoInfo.basic_info?.title) {
+          const titleValue = videoInfo.basic_info.title;
+          if (typeof titleValue === 'string') {
+            extractedTitle = titleValue;
+          } else if ((titleValue as any)?.text) {
+            extractedTitle = (titleValue as any).text;
+          } else if ((titleValue as any)?.simpleText) {
+            extractedTitle = (titleValue as any).simpleText;
+          } else if (Array.isArray((titleValue as any)?.runs) && (titleValue as any).runs.length > 0) {
+            // Extract text from runs array (YouTube's rich text format)
+            extractedTitle = (titleValue as any).runs.map((run: any) => run.text || '').join('');
+          }
+        } 
+        // Method 2: Try primary info structure (some API versions)
+        else if ((videoInfo as any).primary_info?.title) {
+          const titleValue = (videoInfo as any).primary_info.title;
+          if (typeof titleValue === 'string') {
+            extractedTitle = titleValue;
+          } else if (titleValue?.text) {
+            extractedTitle = titleValue.text;
+          } else if (titleValue?.simpleText) {
+            extractedTitle = titleValue.simpleText;
+          } else if (Array.isArray(titleValue?.runs) && titleValue.runs.length > 0) {
+            extractedTitle = titleValue.runs.map((run: any) => run.text || '').join('');
+          }
+        }
+        // Method 4: Try video object directly
+        else if ((videoInfo as any).video?.title) {
+          extractedTitle = (videoInfo as any).video.title;
+        }
+        // Method 5: Try video details structure
+        else if ((videoInfo as any).video_details?.title) {
+          extractedTitle = (videoInfo as any).video_details.title;
+        }
+        // Method 6: Try videoDetails (older API structure)
+        else if ((videoInfo as any).videoDetails?.title) {
+          extractedTitle = (videoInfo as any).videoDetails.title;
+        }
+        // Method 7: Try microformat structure
+        else if ((videoInfo as any).microformat?.playerMicroformatRenderer?.title?.simpleText) {
+          extractedTitle = (videoInfo as any).microformat.playerMicroformatRenderer.title.simpleText;
+        }
+        // Method 8: Try basic_info short_description as fallback (first line)
+        else if (videoInfo.basic_info?.short_description) {
+          const desc = videoInfo.basic_info.short_description;
+          extractedTitle = typeof desc === 'string' ? desc.split('\n')[0].trim() : String(desc);
+        }
+        // Method 9: Try top-level title property
+        else if ((videoInfo as any).title) {
+          extractedTitle = (videoInfo as any).title;
+        }
+        // Method 10: Try getBasicInfo response - it might have a different structure
+        else if ((videoInfo as any).page?.microformat?.playerMicroformatRenderer?.title?.simpleText) {
+          extractedTitle = (videoInfo as any).page.microformat.playerMicroformatRenderer.title.simpleText;
+        }
+        
+        if (extractedTitle && typeof extractedTitle === 'string' && extractedTitle.trim().length > 0) {
           title = extractedTitle.trim();
           console.log(`  ✅ Retrieved title: "${title}"`);
         } else {
-          console.log(`  ⚠️ Could not extract title, using fallback: "${title}"`);
+          // Debug: log available properties for troubleshooting
+          console.log(`  ⚠️ Could not extract title, debugging structure...`);
+          console.log(`  📋 Top-level keys:`, Object.keys(videoInfo || {}));
+          if (videoInfo.basic_info) {
+            console.log(`  📋 basic_info keys:`, Object.keys(videoInfo.basic_info));
+            console.log(`  📋 basic_info content:`, JSON.stringify(videoInfo.basic_info, null, 2).substring(0, 500));
+          }
+          if ((videoInfo as any).primary_info) {
+            console.log(`  📋 primary_info keys:`, Object.keys((videoInfo as any).primary_info));
+          }
+          console.log(`  ⚠️ Using fallback title: "${title}"`);
         }
 
         // Use it in your code
@@ -222,6 +514,158 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Import video error:', error);
       return res.status(500).json({ 
         error: error.message || "Failed to import video. Please try again." 
+      });
+    }
+  });
+
+  // POST /api/import-playlist - Import all videos from a YouTube playlist
+  app.post("/api/import-playlist", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      
+      const validation = importVideoSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request",
+          details: validation.error.errors 
+        });
+      }
+
+      const { youtubeUrl } = validation.data;
+
+      // Extract playlist ID
+      const playlistId = extractPlaylistId(youtubeUrl);
+      if (!playlistId) {
+        return res.status(400).json({ 
+          error: "Invalid playlist URL. Please provide a valid YouTube playlist URL." 
+        });
+      }
+
+      console.log(`📋 Fetching playlist info for: ${playlistId}`);
+      const youtube = await getYoutubeClient();
+      
+      // Get playlist information
+      let playlist;
+      try {
+        playlist = await youtube.getPlaylist(playlistId);
+      } catch (error: any) {
+        console.error('❌ Failed to fetch playlist:', error.message);
+        return res.status(400).json({ 
+          error: `Could not fetch playlist. ${error.message || 'The playlist may be private or unavailable.'}` 
+        });
+      }
+
+      // Get playlist title
+      let playlistTitle = 'Untitled Playlist';
+      try {
+        const titleValue = (playlist as any).header?.playlist_header_renderer?.title?.text || 
+                          (playlist as any).title ||
+                          (playlist as any).header?.playlist_header_renderer?.title?.simpleText;
+        if (titleValue) {
+          playlistTitle = typeof titleValue === 'string' ? titleValue : titleValue.text || titleValue;
+        }
+      } catch (e) {
+        console.log('⚠️ Could not extract playlist title');
+      }
+
+      console.log(`📋 Playlist: "${playlistTitle}"`);
+
+      // Get all videos from playlist
+      const videos: any[] = [];
+      try {
+        // Iterate through playlist items
+        // youtubei.js playlist.videos is an async iterable
+        for await (const video of playlist.videos) {
+          // Extract video ID from various possible structures
+          const videoId = video?.id || 
+                        (video as any)?.video_id || 
+                        (video as any)?.videoId ||
+                        (video as any)?.videoRenderer?.videoId ||
+                        (video as any)?.compactVideoRenderer?.videoId ||
+                        (video as any)?.playlistVideoRenderer?.videoId;
+          
+          if (videoId) {
+            videos.push({ ...video, extractedId: videoId });
+          } else {
+            console.log('⚠️ Skipping video with no ID:', Object.keys(video || {}));
+          }
+        }
+      } catch (error: any) {
+        console.error('❌ Error iterating playlist videos:', error.message);
+        return res.status(400).json({ 
+          error: `Could not fetch videos from playlist. ${error.message || ''}` 
+        });
+      }
+
+      if (videos.length === 0) {
+        return res.status(400).json({ 
+          error: "This playlist contains no videos or all videos are unavailable." 
+        });
+      }
+
+      console.log(`📹 Found ${videos.length} videos in playlist`);
+
+      // Import each video (skip ones that already exist)
+      const results = {
+        total: videos.length,
+        imported: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [] as string[],
+      };
+
+      for (let i = 0; i < videos.length; i++) {
+        const video = videos[i];
+        // Use extractedId if available, otherwise try to extract
+        const videoId = (video as any).extractedId || 
+                       video.id || 
+                       (video as any).video_id || 
+                       (video as any).videoId || 
+                       ((video as any).videoRenderer?.videoId) ||
+                       ((video as any).compactVideoRenderer?.videoId) ||
+                       ((video as any).playlistVideoRenderer?.videoId);
+        
+        if (!videoId) {
+          results.failed++;
+          results.errors.push(`Video ${i + 1}: No video ID found`);
+          console.log(`  ❌ [${i + 1}/${videos.length}] Could not extract video ID from:`, Object.keys(video || {}));
+          continue;
+        }
+
+        try {
+          await importSingleVideo(videoId);
+          results.imported++;
+          console.log(`  ✅ [${i + 1}/${videos.length}] Imported: ${videoId}`);
+        } catch (error: any) {
+          if (error.message?.includes('already been added')) {
+            results.skipped++;
+            console.log(`  ⏭️  [${i + 1}/${videos.length}] Skipped (already exists): ${videoId}`);
+          } else {
+            results.failed++;
+            const errorMsg = error.message || 'Unknown error';
+            results.errors.push(`Video ${i + 1} (${videoId}): ${errorMsg}`);
+            console.log(`  ❌ [${i + 1}/${videos.length}] Failed: ${videoId} - ${errorMsg}`);
+          }
+        }
+      }
+
+      console.log(`✅ Playlist import complete: ${results.imported} imported, ${results.skipped} skipped, ${results.failed} failed`);
+
+      return res.json({ 
+        success: true,
+        playlistTitle,
+        results: {
+          total: results.total,
+          imported: results.imported,
+          skipped: results.skipped,
+          failed: results.failed,
+          errors: results.errors.length > 0 ? results.errors : undefined,
+        }
+      });
+    } catch (error: any) {
+      console.error('Import playlist error:', error);
+      return res.status(500).json({ 
+        error: error.message || "Failed to import playlist. Please try again." 
       });
     }
   });
@@ -539,31 +983,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { message } = validation.data;
+      const { message, conversationId } = validation.data;
+      const userId = req.user!.id;
 
-      console.log(`💬 Chat question: "${message}"`);
+      console.log(`💬 Chat message: "${message}"${conversationId ? ` (conversation: ${conversationId})` : ' (new conversation)'}`);
       
-      // Diagnostic: Check if any chunks exist
-      const totalChunks = await Chunk.countDocuments();
-      console.log(`  📊 Total chunks in database: ${totalChunks}`);
-      
-      if (totalChunks === 0) {
-        return res.json({
-          answer: "I couldn't find any videos in your knowledge base. Please import some YouTube videos first!",
-          sources: [],
-        });
+      // Load or create conversation
+      let conversation = null;
+      if (conversationId) {
+        conversation = await Conversation.findOne({ _id: conversationId, userId });
+        if (!conversation) {
+          return res.status(404).json({ error: 'Conversation not found' });
+        }
       }
-      
-      // Generate embedding for the question
-      console.log(`  🔢 Generating embedding for question...`);
-      const questionEmbedding = await generateEmbedding(message);
-      console.log(`  ✅ Generated query embedding (dimension: ${questionEmbedding.length})`);
 
-      // Perform vector search using MongoDB Atlas Vector Search
-      console.log(`  🔍 Searching vector index for relevant chunks...`);
-      let results;
-      try {
-        results = await Chunk.aggregate([
+      // Load user preferences
+      const preferences = await UserPreferences.findOne({ userId }) || {
+        temperature: 0.7,
+        maxTokens: 8192,
+        model: 'gpt-3.5-turbo',
+        defaultSystemPrompt: undefined,
+      } as any;
+
+      // Determine if this is a question that requires source search
+      const shouldSearchSources = isQuestion(message);
+      let results: any[] = [];
+      let sources: any[] = [];
+
+      if (shouldSearchSources) {
+        console.log(`  ❓ Detected question - searching for sources...`);
+        
+        // Diagnostic: Check if any chunks exist
+        const totalChunks = await Chunk.countDocuments();
+        console.log(`  📊 Total chunks in database: ${totalChunks}`);
+        
+        if (totalChunks === 0) {
+          const response = {
+            answer: "I couldn't find any videos in your knowledge base. Please import some YouTube videos first!",
+            sources: [],
+            conversationId: conversation?._id.toString() || null,
+          };
+          
+          // Save message to conversation if exists
+          if (conversation) {
+            conversation.messages.push({
+              role: 'user',
+              content: message,
+              timestamp: new Date(),
+            });
+            conversation.messages.push({
+              role: 'assistant',
+              content: response.answer,
+              timestamp: new Date(),
+            });
+            conversation.lastMessageAt = new Date();
+            await conversation.save();
+          }
+          
+          return res.json(response);
+        }
+        
+        // Generate embedding for the question
+        console.log(`  🔢 Generating embedding for question...`);
+        const questionEmbedding = await generateEmbedding(message);
+        console.log(`  ✅ Generated query embedding (dimension: ${questionEmbedding.length})`);
+
+        // Perform vector search using MongoDB Atlas Vector Search
+        console.log(`  🔍 Searching vector index for relevant chunks...`);
+        try {
+          results = await Chunk.aggregate([
           {
             $vectorSearch: {
               index: "vector_index",
@@ -656,69 +1144,208 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw vectorError;
       }
 
-      console.log(`  ✅ Vector search returned ${results.length} results`);
-      if (results.length > 0) {
-        console.log(`  📊 Top result score: ${results[0].score?.toFixed(4) || 'N/A'}`);
-        console.log(`  📊 Lowest result score: ${results[results.length - 1].score?.toFixed(4) || 'N/A'}`);
-      }
+          console.log(`  ✅ Vector search returned ${results.length} results`);
+          if (results.length > 0) {
+            console.log(`  📊 Top result score: ${results[0].score?.toFixed(4) || 'N/A'}`);
+            console.log(`  📊 Lowest result score: ${results[results.length - 1].score?.toFixed(4) || 'N/A'}`);
+          }
 
-      // If no results found
-      if (results.length === 0) {
-        return res.json({
-          answer: "I couldn't find any relevant information in your knowledge base to answer that question. Try importing more videos or asking about topics covered in your existing videos.",
-          sources: [],
-        });
-      }
+          // If no results found
+          if (results.length === 0) {
+            const response = {
+              answer: "I couldn't find any relevant information in your knowledge base to answer that question. Try importing more videos or asking about topics covered in your existing videos.",
+              sources: [],
+              conversationId: conversation?._id.toString() || null,
+            };
+            
+            // Save message to conversation if exists
+            if (conversation) {
+              conversation.messages.push({
+                role: 'user',
+                content: message,
+                timestamp: new Date(),
+              });
+              conversation.messages.push({
+                role: 'assistant',
+                content: response.answer,
+                timestamp: new Date(),
+              });
+              conversation.lastMessageAt = new Date();
+              await conversation.save();
+            }
+            
+            return res.json(response);
+          }
 
-      // Build context from top chunks with source type awareness
-      const context = results
-        .map((r, i) => {
-          const sourceLabel = r.source_type === 'youtube' 
-            ? `${r.video_title} (Video)`
-            : r.source_type === 'text'
-            ? `${r.video_title} (Article)`
-            : r.source_type === 'document'
-            ? `${r.video_title} (Document)`
-            : r.source_type === 'audio'
-            ? `${r.video_title} (Audio)`
-            : r.video_title;
+          // Build context from top chunks with source type awareness
+          const context = results
+            .map((r, i) => {
+              const sourceLabel = r.source_type === 'youtube' 
+                ? `${r.video_title} (Video)`
+                : r.source_type === 'text'
+                ? `${r.video_title} (Article)`
+                : r.source_type === 'document'
+                ? `${r.video_title} (Document)`
+                : r.source_type === 'audio'
+                ? `${r.video_title} (Audio)`
+                : r.video_title;
+              
+              return `[${sourceLabel}${r.video_channel ? ' by ' + r.video_channel : ''}]\n${r.content}`;
+            })
+            .join('\n\n---\n\n');
+
+          // Format top 3 sources as proper SourceCitation objects
+          sources = results.slice(0, 3).map(r => ({
+            source_id: r.video_id.toString(),
+            source_type: r.source_type || 'youtube',
+            source_title: r.video_title,
+            author: r.video_channel,
+            start_time: r.start_time,
+            content: r.content,
+            thumbnail_url: r.video_thumbnail,
+            url: r.source_type === 'youtube' && r.video_youtube_id 
+              ? `https://youtube.com/watch?v=${r.video_youtube_id}` 
+              : r.source_url,
+            score: r.score,
+          }));
+
+          // Update conversation context sources
+          if (conversation) {
+            sources.forEach(s => {
+              if (!conversation!.contextSources.includes(s.source_id)) {
+                conversation!.contextSources.push(s.source_id);
+              }
+            });
+          }
+        } else {
+          console.log(`  💬 Non-question message - using conversation context only`);
           
-          return `[${sourceLabel}${r.video_channel ? ' by ' + r.video_channel : ''}]\n${r.content}`;
-        })
-        .join('\n\n---\n\n');
+          // For non-questions, use conversation context only
+          // If no conversation exists, create a simple response
+          if (!conversation) {
+            return res.json({
+              answer: "I'm here to help! Ask me a question about your knowledge base, and I'll search for relevant information.",
+              sources: [],
+              conversationId: null,
+            });
+          }
+        }
 
-      // Create system prompt
-      const systemPrompt = `You are a helpful AI assistant with access to a multi-source knowledge base including YouTube videos, articles, documents, and audio transcriptions.
+        // Build system prompt
+        let systemPrompt = preferences.defaultSystemPrompt || 
+          `You are a helpful AI assistant with access to a multi-source knowledge base including YouTube videos, articles, documents, and audio transcriptions.
 
 INSTRUCTIONS:
-1. Answer questions using ONLY the information in the provided context
+1. Answer questions using ONLY the information in the provided context (if any)
 2. If the context doesn't contain the answer, say "I don't have information about that in the knowledge base"
 3. Cite sources naturally in your answer by mentioning the source title
 4. Be conversational and concise
-5. Do not make up information
+5. Do not make up information`;
 
-CONTEXT:
-${context}`;
+        // Add context to system prompt if we have sources
+        if (shouldSearchSources && results.length > 0) {
+          const context = results
+            .map((r, i) => {
+              const sourceLabel = r.source_type === 'youtube' 
+                ? `${r.video_title} (Video)`
+                : r.source_type === 'text'
+                ? `${r.video_title} (Article)`
+                : r.source_type === 'document'
+                ? `${r.video_title} (Document)`
+                : r.source_type === 'audio'
+                ? `${r.video_title} (Audio)`
+                : r.video_title;
+              
+              return `[${sourceLabel}${r.video_channel ? ' by ' + r.video_channel : ''}]\n${r.content}`;
+            })
+            .join('\n\n---\n\n');
+          
+          systemPrompt += `\n\nCONTEXT:\n${context}`;
+        }
 
-      // Get AI response
-      const answer = await chatCompletion(systemPrompt, message);
+        // Use conversation's custom prompt if available
+        if (conversation?.customPrompt) {
+          systemPrompt = conversation.customPrompt;
+        }
 
-      // Format top 3 sources as proper SourceCitation objects
-      const sources = results.slice(0, 3).map(r => ({
-        source_id: r.video_id.toString(),
-        source_type: r.source_type || 'youtube',
-        source_title: r.video_title,
-        author: r.video_channel,
-        start_time: r.start_time,
-        content: r.content,
-        thumbnail_url: r.video_thumbnail,
-        url: r.source_type === 'youtube' && r.video_youtube_id 
-          ? `https://youtube.com/watch?v=${r.video_youtube_id}` 
-          : r.source_url,
-        score: r.score,
-      }));
+        // Build conversation history for context
+        const conversationHistory = conversation 
+          ? conversation.messages
+              .filter(m => m.role !== 'system') // Exclude system messages from history
+              .map(m => ({
+                role: m.role as 'user' | 'assistant',
+                content: m.content,
+              }))
+          : [];
 
-      return res.json({ answer, sources });
+        // Get AI response with preferences and conversation history
+        const answer = await chatCompletion(
+          systemPrompt,
+          message,
+          {
+            temperature: preferences.temperature,
+            maxTokens: preferences.maxTokens,
+            model: preferences.model,
+            conversationHistory,
+          }
+        );
+
+        // Create or update conversation
+        if (!conversation) {
+          // Create new conversation
+          conversation = await Conversation.create({
+            userId,
+            title: generateConversationTitle(message),
+            messages: [
+              {
+                role: 'user',
+                content: message,
+                timestamp: new Date(),
+                sources: sources.map(s => ({
+                  source_id: s.source_id,
+                  source_title: s.source_title,
+                  source_type: s.source_type,
+                  content: s.content,
+                  score: s.score,
+                })),
+              },
+              {
+                role: 'assistant',
+                content: answer,
+                timestamp: new Date(),
+              },
+            ],
+            contextSources: sources.map(s => s.source_id),
+            lastMessageAt: new Date(),
+          });
+        } else {
+          // Update existing conversation
+          conversation.messages.push({
+            role: 'user',
+            content: message,
+            timestamp: new Date(),
+            sources: sources.map(s => ({
+              source_id: s.source_id,
+              source_title: s.source_title,
+              source_type: s.source_type,
+              content: s.content,
+              score: s.score,
+            })),
+          });
+          conversation.messages.push({
+            role: 'assistant',
+            content: answer,
+            timestamp: new Date(),
+          });
+          conversation.lastMessageAt = new Date();
+          await conversation.save();
+        }
+
+        return res.json({
+          answer,
+          sources,
+          conversationId: conversation._id.toString(),
+        });
     } catch (error: any) {
       console.error('Chat error:', error);
       
@@ -732,6 +1359,168 @@ ${context}`;
       return res.status(500).json({ 
         error: error.message || "Failed to process your question. Please try again." 
       });
+    }
+  });
+
+  // ==================== CONVERSATION ENDPOINTS ====================
+
+  // GET /api/conversations - List all user conversations
+  app.get("/api/conversations", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      const userId = req.user!.id;
+
+      const conversations = await Conversation.find({ userId })
+        .sort({ lastMessageAt: -1 })
+        .select('title lastMessageAt created_at updated_at')
+        .lean();
+
+      return res.json({ conversations });
+    } catch (error: any) {
+      console.error('Get conversations error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // POST /api/conversations - Create new conversation
+  app.post("/api/conversations", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      const userId = req.user!.id;
+      const { title, customPrompt } = req.body;
+
+      if (!title || typeof title !== 'string' || title.trim().length === 0) {
+        return res.status(400).json({ error: 'Title is required' });
+      }
+
+      const conversation = await Conversation.create({
+        userId,
+        title: title.trim(),
+        customPrompt: customPrompt?.trim() || undefined,
+        messages: [],
+        contextSources: [],
+        lastMessageAt: new Date(),
+      });
+
+      return res.status(201).json({
+        conversation: {
+          _id: conversation._id.toString(),
+          title: conversation.title,
+          customPrompt: conversation.customPrompt || null,
+          messages: conversation.messages,
+          contextSources: conversation.contextSources,
+          lastMessageAt: conversation.lastMessageAt,
+          created_at: conversation.created_at,
+          updated_at: conversation.updated_at,
+        },
+      });
+    } catch (error: any) {
+      console.error('Create conversation error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // GET /api/conversations/:id - Get conversation with full history
+  app.get("/api/conversations/:id", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      const userId = req.user!.id;
+      const { id } = req.params;
+
+      const conversation = await Conversation.findOne({ _id: id, userId });
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      return res.json({
+        conversation: {
+          _id: conversation._id.toString(),
+          title: conversation.title,
+          customPrompt: conversation.customPrompt || null,
+          messages: conversation.messages,
+          contextSources: conversation.contextSources,
+          lastMessageAt: conversation.lastMessageAt,
+          created_at: conversation.created_at,
+          updated_at: conversation.updated_at,
+        },
+      });
+    } catch (error: any) {
+      console.error('Get conversation error:', error);
+      if (error.name === 'CastError') {
+        return res.status(400).json({ error: 'Invalid conversation ID' });
+      }
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // PATCH /api/conversations/:id - Update conversation (title, customPrompt)
+  app.patch("/api/conversations/:id", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      const userId = req.user!.id;
+      const { id } = req.params;
+      const { title, customPrompt } = req.body;
+
+      const conversation = await Conversation.findOne({ _id: id, userId });
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      const updates: any = {};
+      if (title !== undefined) {
+        if (typeof title !== 'string' || title.trim().length === 0) {
+          return res.status(400).json({ error: 'Title must be a non-empty string' });
+        }
+        updates.title = title.trim();
+      }
+      if (customPrompt !== undefined) {
+        updates.customPrompt = customPrompt?.trim() || undefined;
+      }
+
+      Object.assign(conversation, updates);
+      await conversation.save();
+
+      return res.json({
+        success: true,
+        conversation: {
+          _id: conversation._id.toString(),
+          title: conversation.title,
+          customPrompt: conversation.customPrompt || null,
+          messages: conversation.messages,
+          contextSources: conversation.contextSources,
+          lastMessageAt: conversation.lastMessageAt,
+          created_at: conversation.created_at,
+          updated_at: conversation.updated_at,
+        },
+      });
+    } catch (error: any) {
+      console.error('Update conversation error:', error);
+      if (error.name === 'CastError') {
+        return res.status(400).json({ error: 'Invalid conversation ID' });
+      }
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // DELETE /api/conversations/:id - Delete conversation
+  app.delete("/api/conversations/:id", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      const userId = req.user!.id;
+      const { id } = req.params;
+
+      const conversation = await Conversation.findOneAndDelete({ _id: id, userId });
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete conversation error:', error);
+      if (error.name === 'CastError') {
+        return res.status(400).json({ error: 'Invalid conversation ID' });
+      }
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -834,6 +1623,110 @@ ${context}`;
       console.error('List sources error:', error);
       return res.status(500).json({ 
         error: "Failed to fetch sources" 
+      });
+    }
+  });
+
+  // DELETE /api/sources/:id - Delete a source and its chunks
+  app.delete("/api/sources/:id", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      
+      const { id } = req.params;
+
+      // Find the source
+      const source = await Source.findById(id);
+      if (!source) {
+        // Also check old Video collection for backwards compatibility
+        const video = await Video.findById(id);
+        if (!video) {
+          return res.status(404).json({ 
+            error: "Source not found" 
+          });
+        }
+        
+        // Delete video and its chunks
+        await Chunk.deleteMany({ video_id: id });
+        await Video.deleteOne({ _id: id });
+        
+        console.log(`✅ Deleted legacy video ${id} and its chunks`);
+        return res.json({ success: true });
+      }
+
+      // Delete all chunks associated with this source
+      await Chunk.deleteMany({ source_id: id });
+      
+      // Delete the source document
+      await Source.deleteOne({ _id: id });
+      
+      console.log(`✅ Deleted source ${id} and its chunks`);
+      
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete source error:', error);
+      return res.status(500).json({ 
+        error: error.message || "Failed to delete source" 
+      });
+    }
+  });
+
+  // PATCH /api/sources/:id - Update source metadata
+  app.patch("/api/sources/:id", requireAuth, async (req, res) => {
+    try {
+      await connectDB();
+      
+      const { id } = req.params;
+      const { title, author } = req.body;
+
+      // Validate that at least one field is provided
+      if (!title && author === undefined) {
+        return res.status(400).json({ 
+          error: "At least one field (title or author) must be provided" 
+        });
+      }
+
+      // Validate title if provided
+      if (title !== undefined && (!title || title.trim().length === 0)) {
+        return res.status(400).json({ 
+          error: "Title cannot be empty" 
+        });
+      }
+
+      // Find and update the source
+      const source = await Source.findById(id);
+      if (!source) {
+        // Also check old Video collection for backwards compatibility
+        const video = await Video.findById(id);
+        if (!video) {
+          return res.status(404).json({ 
+            error: "Source not found" 
+          });
+        }
+        
+        // Update legacy video
+        const updateData: any = {};
+        if (title !== undefined) updateData.title = title.trim();
+        if (author !== undefined) updateData.channel_name = author?.trim() || undefined;
+        
+        await Video.updateOne({ _id: id }, updateData);
+        console.log(`✅ Updated legacy video ${id}`);
+        return res.json({ success: true });
+      }
+
+      // Update source
+      const updateData: any = {};
+      if (title !== undefined) updateData.title = title.trim();
+      if (author !== undefined) updateData.author = author?.trim() || undefined;
+
+      await Source.updateOne({ _id: id }, updateData);
+      
+      console.log(`✅ Updated source ${id}`);
+      
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('Update source error:', error);
+      return res.status(500).json({ 
+        error: error.message || "Failed to update source" 
       });
     }
   });

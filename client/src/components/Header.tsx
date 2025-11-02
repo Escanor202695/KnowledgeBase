@@ -1,12 +1,26 @@
-import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { useLocation } from 'wouter';
-import { Brain, Menu, User, LogOut, Settings, HelpCircle } from 'lucide-react';
-import { Button } from './ui/button';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from './ui/sheet';
-import { Separator } from './ui/separator';
-import { useToast } from '@/hooks/use-toast';
-import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import {
+  Brain,
+  Menu,
+  User,
+  LogOut,
+  Settings,
+  FolderOpen,
+  Home,
+} from "lucide-react";
+import { Button } from "./ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "./ui/sheet";
+import { Separator } from "./ui/separator";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export function Header() {
   const [location, setLocation] = useLocation();
@@ -14,34 +28,39 @@ export function Header() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   // Get current user info
-  const { data: userData } = useQuery<{ user: { email: string; name?: string } }>({
-    queryKey: ['/api/auth/me'],
+  const { data: userData } = useQuery<{
+    user: { email: string; name?: string };
+  }>({
+    queryKey: ["/api/auth/me"],
     retry: false,
-    enabled: location !== '/login' && location !== '/signup' && location !== '/forgot-password',
+    enabled:
+      location !== "/login" &&
+      location !== "/signup" &&
+      location !== "/forgot-password",
   });
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest('POST', '/api/auth/logout', {});
+      const response = await apiRequest("POST", "/api/auth/logout", {});
       return response.json();
     },
     onSuccess: () => {
       // Clear token from localStorage
-      localStorage.removeItem('sessionToken');
+      localStorage.removeItem("sessionToken");
       // Clear React Query cache
       queryClient.clear();
       toast({
-        title: 'Logged out',
-        description: 'You have been successfully logged out.',
+        title: "Logged out",
+        description: "You have been successfully logged out.",
       });
       setSheetOpen(false);
-      setLocation('/login');
+      setLocation("/login");
     },
     onError: (error: any) => {
       toast({
-        title: 'Logout failed',
-        description: error.message || 'Could not log out. Please try again.',
-        variant: 'destructive',
+        title: "Logout failed",
+        description: error.message || "Could not log out. Please try again.",
+        variant: "destructive",
       });
     },
   });
@@ -50,17 +69,23 @@ export function Header() {
     logoutMutation.mutate();
   };
 
-  const isAuthPage = location === '/login' || location === '/signup' || location === '/forgot-password';
+  const isAuthPage =
+    location === "/login" ||
+    location === "/signup" ||
+    location === "/forgot-password";
   const isAuthenticated = !!userData?.user;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background">
       <div className="max-w-[1600px] mx-auto flex h-16 items-center justify-between px-4 lg:px-8">
-        <div className="flex items-center gap-2">
+        <button
+          onClick={() => setLocation("/")}
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+        >
           <Brain className="h-6 w-6 text-primary" />
           <span className="text-lg font-semibold">Lazy Learning</span>
-        </div>
-        
+        </button>
+
         {!isAuthPage && (
           <div className="flex items-center gap-4">
             <p className="text-xs text-muted-foreground hidden sm:block">
@@ -70,7 +95,11 @@ export function Header() {
             {isAuthenticated && (
               <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" data-testid="button-user-menu">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    data-testid="button-user-menu"
+                  >
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
@@ -78,7 +107,7 @@ export function Header() {
                   <SheetHeader>
                     <SheetTitle>Account Menu</SheetTitle>
                   </SheetHeader>
-                  
+
                   <div className="mt-6 space-y-6">
                     {/* User Info Section */}
                     <div className="space-y-2">
@@ -88,7 +117,9 @@ export function Header() {
                         </div>
                         <div className="flex-1 min-w-0">
                           {userData?.user.name && (
-                            <p className="text-sm font-medium truncate">{userData.user.name}</p>
+                            <p className="text-sm font-medium truncate">
+                              {userData.user.name}
+                            </p>
                           )}
                           <p className="text-xs text-muted-foreground truncate">
                             {userData?.user.email}
@@ -105,45 +136,39 @@ export function Header() {
                         variant="ghost"
                         className="w-full justify-start"
                         onClick={() => {
-                          setLocation('/');
+                          setLocation("/");
                           setSheetOpen(false);
                         }}
                         data-testid="link-home"
                       >
-                        <Brain className="mr-3 h-4 w-4" />
-                        Knowledge Base
-                      </Button>
-                      
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start"
-                        onClick={() => {
-                          toast({
-                            title: 'Settings',
-                            description: 'Settings page coming soon!',
-                          });
-                          setSheetOpen(false);
-                        }}
-                        data-testid="link-settings"
-                      >
-                        <Settings className="mr-3 h-4 w-4" />
-                        Settings
+                        <Home className="mr-3 h-4 w-4" />
+                        Home
                       </Button>
 
                       <Button
                         variant="ghost"
                         className="w-full justify-start"
                         onClick={() => {
-                          toast({
-                            title: 'Help',
-                            description: 'Help documentation coming soon!',
-                          });
+                          setLocation("/sources");
                           setSheetOpen(false);
                         }}
-                        data-testid="link-help"
+                        data-testid="link-sources"
                       >
-                        <HelpCircle className="mr-3 h-4 w-4" />
-                        Help & Support
+                        <FolderOpen className="mr-3 h-4 w-4" />
+                        Sources
+                      </Button>
+
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start"
+                        onClick={() => {
+                          setLocation("/settings");
+                          setSheetOpen(false);
+                        }}
+                        data-testid="link-settings"
+                      >
+                        <Settings className="mr-3 h-4 w-4" />
+                        Settings
                       </Button>
                     </nav>
 
@@ -158,7 +183,7 @@ export function Header() {
                       data-testid="button-logout"
                     >
                       <LogOut className="mr-2 h-4 w-4" />
-                      {logoutMutation.isPending ? 'Logging out...' : 'Log out'}
+                      {logoutMutation.isPending ? "Logging out..." : "Log out"}
                     </Button>
                   </div>
                 </SheetContent>

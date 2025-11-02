@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -24,11 +24,23 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
+  // Get URL query parameters
+  const getQueryParams = () => {
+    const searchParams = new URLSearchParams(window.location.search);
+    return {
+      email: searchParams.get('email') || '',
+      password: searchParams.get('password') || '',
+    };
+  };
+
+  const queryParams = getQueryParams();
+  const hasQueryCredentials = queryParams.email && queryParams.password;
+
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "",
-      password: "",
+      email: queryParams.email,
+      password: queryParams.password,
     },
   });
 
@@ -60,6 +72,27 @@ export default function Login() {
   const handleSubmit = (data: LoginForm) => {
     loginMutation.mutate(data);
   };
+
+  // Auto-fill and auto-submit if query params are present
+  useEffect(() => {
+    if (hasQueryCredentials) {
+      form.setValue('email', queryParams.email);
+      form.setValue('password', queryParams.password);
+      
+      // Auto-submit after a short delay to ensure form is ready
+      const timer = setTimeout(() => {
+        const formData = form.getValues();
+        // Only submit if form data is valid
+        form.trigger().then((isValid) => {
+          if (isValid) {
+            handleSubmit(formData);
+          }
+        });
+      }, 300); // Small delay to ensure form is ready
+
+      return () => clearTimeout(timer);
+    }
+  }, []); // Only run on mount
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
