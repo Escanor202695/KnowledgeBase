@@ -4,6 +4,7 @@ import path from "path";
 import { createServer, type Server } from "http";
 import { Innertube } from 'youtubei.js';
 import { promises as fs } from 'fs';
+import mongoose from "mongoose";
 import connectDB from "./lib/mongodb";
 import Video from "./lib/models/Video";
 import Source from "./lib/models/Source";
@@ -1048,9 +1049,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const questionEmbedding = await generateEmbedding(message);
         console.log(`  ✅ Generated query embedding (dimension: ${questionEmbedding.length})`);
 
+        // If conversation exists and has contextSources, prioritize searching within those first
+        let contextSourceIds: string[] = [];
+        if (conversation && conversation.contextSources && conversation.contextSources.length > 0) {
+          contextSourceIds = conversation.contextSources.map(id => id.toString());
+          console.log(`  📚 Conversation has ${contextSourceIds.length} context sources, prioritizing search within them`);
+        }
+
         // Perform vector search using MongoDB Atlas Vector Search
         console.log(`  🔍 Searching vector index for relevant chunks...`);
         try {
+          // Build match stage - if we have context sources, prefer them but allow others if score is high
+          const matchStage: any = contextSourceIds.length > 0
+            ? {
+                $or: [
+                  // Prefer chunks from context sources with lower threshold
+                  {
+                    source_id: { $in: contextSourceIds.map(id => new mongoose.Types.ObjectId(id)) },
+                    score: { $gte: 0.55 }
+                  },
+                  // Also allow high-scoring chunks from other sources
+                  {
+                    source_id: { $nin: contextSourceIds.map(id => new mongoose.Types.ObjectId(id)) },
+                    score: { $gte: 0.70 }
+                  }
+                ]
+              }
+            : {
+                score: { $gte: 0.65 }  // Similarity threshold - balanced between precision and recall
+              };
+
           results = await Chunk.aggregate([
           {
             $vectorSearch: {
@@ -1067,9 +1095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         },
         {
-          $match: {
-            score: { $gte: 0.65 }  // Similarity threshold - balanced between precision and recall
-          }
+          $match: matchStage
         },
         // Try to lookup from sources collection first (new unified model)
         {
@@ -1218,9 +1244,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
         } else {
-          console.log(`  💬 Non-question message - using conversation context only`);
+          console.log(`  💬 Non-question message - using conversation context`);
           
-          // For non-questions, use conversation context only
+          // For non-questions, use conversation context
           // If no conversation exists, create a simple response
           if (!conversation) {
             return res.json({
@@ -1229,6 +1255,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               conversationId: null,
             });
           }
+          
+          // For non-questions with existing conversation, use conversation history
+          // The AI will respond using conversation context via the conversation history
+          // No new sources needed since we're continuing the conversation
         }
 
         // Build system prompt
@@ -1236,11 +1266,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `You are a helpful AI assistant with access to a multi-source knowledge base including YouTube videos, articles, documents, and audio transcriptions.
 
 INSTRUCTIONS:
-1. Answer questions using ONLY the information in the provided context (if any)
-2. If the context doesn't contain the answer, say "I don't have information about that in the knowledge base"
-3. Cite sources naturally in your answer by mentioning the source title
-4. Be conversational and concise
-5. Do not make up information`;
+1. Answer questions using the information in the provided context AND the conversation history below
+2. Use the conversation history to understand the context of follow-up questions. For example, if the user previously asked about "AI receptionist" and then asks "what are the first stage features", understand that they mean "first stage features of AI receptionist"
+3. Maintain conversational context - if the user asks a follow-up question, infer what they're referring to from previous messages
+4. If the context doesn't contain the answer, say "I don't have information about that in the knowledge base"
+5. Cite sources naturally in your answer by mentioning the source title
+6. Be conversational and concise
+7. Do not make up information`;
 
         // Add context to system prompt if we have sources
         if (shouldSearchSources && results.length > 0) {
@@ -1268,10 +1300,11 @@ INSTRUCTIONS:
           systemPrompt = conversation.customPrompt;
         }
 
-        // Build conversation history for context
+        // Build conversation history for context (last 10 messages to avoid token limits)
         const conversationHistory = conversation 
           ? conversation.messages
               .filter(m => m.role !== 'system') // Exclude system messages from history
+              .slice(-10) // Keep last 10 messages for context
               .map(m => ({
                 role: m.role as 'user' | 'assistant',
                 content: m.content,
@@ -1301,18 +1334,22 @@ INSTRUCTIONS:
                 role: 'user',
                 content: message,
                 timestamp: new Date(),
+              },
+              {
+                role: 'assistant',
+                content: answer,
+                timestamp: new Date(),
                 sources: sources.map(s => ({
                   source_id: s.source_id,
                   source_title: s.source_title,
                   source_type: s.source_type,
                   content: s.content,
                   score: s.score,
+                  author: s.author,
+                  start_time: s.start_time,
+                  url: s.url,
+                  thumbnail_url: s.thumbnail_url,
                 })),
-              },
-              {
-                role: 'assistant',
-                content: answer,
-                timestamp: new Date(),
               },
             ],
             contextSources: sources.map(s => s.source_id),
@@ -1324,18 +1361,22 @@ INSTRUCTIONS:
             role: 'user',
             content: message,
             timestamp: new Date(),
+          });
+          conversation.messages.push({
+            role: 'assistant',
+            content: answer,
+            timestamp: new Date(),
             sources: sources.map(s => ({
               source_id: s.source_id,
               source_title: s.source_title,
               source_type: s.source_type,
               content: s.content,
               score: s.score,
+              author: s.author,
+              start_time: s.start_time,
+              url: s.url,
+              thumbnail_url: s.thumbnail_url,
             })),
-          });
-          conversation.messages.push({
-            role: 'assistant',
-            content: answer,
-            timestamp: new Date(),
           });
           conversation.lastMessageAt = new Date();
           await conversation.save();
@@ -1432,12 +1473,50 @@ INSTRUCTIONS:
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
+      // Enrich messages with full source details
+      const enrichedMessages = await Promise.all(
+        conversation.messages.map(async (msg) => {
+          if (msg.sources && msg.sources.length > 0) {
+            const enrichedSources = await Promise.all(
+              msg.sources.map(async (source) => {
+                // Fetch full source details from Source collection
+                const fullSource = await Source.findById(source.source_id);
+                if (fullSource) {
+                  return {
+                    ...source,
+                    author: fullSource.author || source.author,
+                    url: fullSource.url || (fullSource.source_type === 'youtube' && fullSource.youtube_id
+                      ? `https://www.youtube.com/watch?v=${fullSource.youtube_id}`
+                      : fullSource.file_url
+                        ? `/${fullSource.file_url}`
+                        : source.url),
+                    thumbnail_url: fullSource.thumbnail_url || source.thumbnail_url,
+                    // start_time is preserved from the original source object
+                    start_time: source.start_time || 0,
+                  };
+                }
+                // If source not found, return original source data
+                return {
+                  ...source,
+                  start_time: source.start_time || 0,
+                };
+              })
+            );
+            return {
+              ...msg.toObject(),
+              sources: enrichedSources,
+            };
+          }
+          return msg.toObject();
+        })
+      );
+
       return res.json({
         conversation: {
           _id: conversation._id.toString(),
           title: conversation.title,
           customPrompt: conversation.customPrompt || null,
-          messages: conversation.messages,
+          messages: enrichedMessages,
           contextSources: conversation.contextSources,
           lastMessageAt: conversation.lastMessageAt,
           created_at: conversation.created_at,

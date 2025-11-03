@@ -14,6 +14,10 @@ export interface IConversation extends Document {
       source_type: string;
       content: string;
       score: number;
+      author?: string;
+      start_time?: number;
+      url?: string;
+      thumbnail_url?: string;
     }>;
   }>;
   contextSources: string[]; // Array of source IDs already used in this conversation
@@ -56,6 +60,10 @@ const ConversationSchema = new Schema<IConversation>({
       source_type: String,
       content: String,
       score: Number,
+      author: String,
+      start_time: Number,
+      url: String,
+      thumbnail_url: String,
     }],
   }],
   contextSources: [{

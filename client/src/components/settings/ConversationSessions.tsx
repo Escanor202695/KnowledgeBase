@@ -114,12 +114,12 @@ export function ConversationSessions() {
   };
 
   const handleResume = (id: string) => {
-    // Navigate to home page and trigger conversation load
-    // This would need to be integrated with ChatInterface
-    setLocation("/");
+    // Navigate to home page with conversation ID in query params
+    setLocation(`/?conversation=${id}`);
     toast({
       title: "Resuming conversation",
       description: "Conversation will be loaded in the chat interface.",
+      variant: "success",
     });
   };
 

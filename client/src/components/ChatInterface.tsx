@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   Send,
   Loader2,
@@ -21,6 +22,7 @@ import type {
 } from "@shared/schema";
 
 export function ChatInterface() {
+  const [location, setLocation] = useLocation();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -38,8 +40,23 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
+  // Check URL for conversation ID on mount or location change
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const conversationParam = searchParams.get("conversation");
+    if (conversationParam && conversationParam !== conversationId) {
+      // Clear messages before loading new conversation
+      setMessages([]);
+      setConversationId(conversationParam);
+    } else if (!conversationParam && conversationId) {
+      // If URL doesn't have conversation param but state does, keep it loaded
+      // Only clear when user explicitly starts new conversation
+    }
+  }, [location, conversationId]);
+
   // Load conversation if conversationId is set
-  useQuery({
+  // Disable automatic refetching to prevent overwriting active chat
+  const { data: conversationData } = useQuery({
     queryKey: ["/api/conversations", conversationId],
     queryFn: async () => {
       if (!conversationId) return null;
@@ -50,22 +67,78 @@ export function ChatInterface() {
       return res.json();
     },
     enabled: !!conversationId,
-    onSuccess: (data) => {
-      if (data?.conversation) {
-        setConversationTitle(data.conversation.title);
-        const loadedMessages: ChatMessage[] = data.conversation.messages.map(
-          (m: any, idx: number) => ({
-            id: `${conversationId}-${idx}`,
-            role: m.role,
-            content: m.content,
-            sources: m.sources || undefined,
-            timestamp: new Date(m.timestamp),
-          })
-        );
-        setMessages(loadedMessages);
-      }
-    },
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    staleTime: Infinity, // Never consider data stale
   });
+
+  // Track if we've loaded initial messages for this conversation
+  const loadedConversationRef = useRef<string | null>(null);
+  // Track if we're actively chatting (to prevent overwriting messages)
+  const isActivelyChattingRef = useRef<boolean>(false);
+
+  // Handle conversation data when it loads
+  useEffect(() => {
+    if (conversationData?.conversation && conversationId) {
+      // Only update if this conversation matches the current conversationId
+      if (conversationData.conversation._id === conversationId) {
+        setConversationTitle(conversationData.conversation.title);
+
+        // Only load messages if:
+        // 1. This is a new conversation (haven't loaded it yet), OR
+        // 2. Messages are empty AND we're not actively chatting
+        // NEVER overwrite messages if:
+        //    - We're actively chatting
+        //    - We already have messages (they're newer than DB)
+        const isNewConversation =
+          loadedConversationRef.current !== conversationId;
+        const dbMessageCount =
+          conversationData.conversation.messages?.length || 0;
+        const currentMessageCount = messages.length;
+
+        // Strong guard: only load if it's truly a new conversation AND we don't have messages
+        // OR if messages are empty AND we're not actively chatting
+        // Also check: never overwrite if we have more or equal messages than DB (we have newer state)
+        const shouldLoadMessages =
+          (isNewConversation && currentMessageCount === 0) ||
+          (currentMessageCount === 0 && !isActivelyChattingRef.current);
+
+        // Additional safety: never overwrite if current state has more messages
+        // This means the user's messages in state are newer than DB
+        if (
+          shouldLoadMessages &&
+          currentMessageCount > 0 &&
+          currentMessageCount >= dbMessageCount
+        ) {
+          // Don't overwrite - our state is newer
+          return;
+        }
+
+        if (shouldLoadMessages) {
+          loadedConversationRef.current = conversationId;
+          isActivelyChattingRef.current = false; // Reset flag when loading
+          const loadedMessages: ChatMessage[] =
+            conversationData.conversation.messages.map(
+              (m: any, idx: number) => ({
+                id: `${conversationId}-${idx}`,
+                role: m.role,
+                content: m.content,
+                sources: m.sources || undefined,
+                timestamp: new Date(m.timestamp),
+              })
+            );
+          setMessages(loadedMessages);
+        } else {
+          // If we're not loading messages, just update the title
+          // This prevents overwriting messages during active chat
+        }
+      }
+    }
+    // Only depend on conversationData and conversationId, not messages.length
+    // This prevents useEffect from running every time we add a message
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationData, conversationId]);
 
   const chatMutation = useMutation<
     ChatResponse & { conversationId?: string | null },
@@ -77,6 +150,9 @@ export function ChatInterface() {
       return res.json();
     },
     onSuccess: (data) => {
+      // Mark that we're actively chatting to prevent overwriting
+      isActivelyChattingRef.current = true;
+
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -89,11 +165,22 @@ export function ChatInterface() {
       // Update conversation ID if this is a new conversation
       if (data.conversationId && !conversationId) {
         setConversationId(data.conversationId);
-        // Refresh conversation to get title
-        queryClient.invalidateQueries({
-          queryKey: ["/api/conversations", data.conversationId],
-        });
+        // For new conversations, we can safely invalidate to get the title
+        // But delay it to ensure sources are saved first
+        setTimeout(() => {
+          queryClient.invalidateQueries({
+            queryKey: ["/api/conversations", data.conversationId],
+          });
+        }, 3000); // Wait 3 seconds for DB to save
       }
+      // For existing conversations, NEVER invalidate queries to avoid race conditions
+      // The messages are already in state and don't need to be refetched
+
+      // Keep the flag true longer to ensure database has time to save
+      // Reset after 5 seconds to allow loading if conversation is resumed later
+      setTimeout(() => {
+        isActivelyChattingRef.current = false;
+      }, 5000);
     },
     onError: () => {
       const errorMessage: ChatMessage = {
@@ -110,6 +197,13 @@ export function ChatInterface() {
     setMessages([]);
     setConversationId(null);
     setConversationTitle(null);
+    loadedConversationRef.current = null;
+    isActivelyChattingRef.current = false;
+    // Clear conversation from URL
+    const newUrl = window.location.pathname;
+    setLocation(newUrl);
+    // Update browser history without the query param
+    window.history.replaceState({}, "", newUrl);
   };
 
   // Fetch all sources for lookup when a citation is clicked
@@ -143,6 +237,9 @@ export function ChatInterface() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || chatMutation.isPending) return;
+
+    // Mark as actively chatting before adding user message
+    isActivelyChattingRef.current = true;
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -262,22 +359,25 @@ export function ChatInterface() {
                   {message.content}
                 </p>
               </div>
-              {message.sources && message.sources.length > 0 && (
-                <div className="space-y-2 pl-2">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Sources:
-                  </p>
-                  {message.sources.map((source, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => handleSourceClick(source.source_id)}
-                      className="cursor-pointer"
-                    >
-                      <SourceCitation source={source} />
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Only show sources for assistant messages */}
+              {message.role === "assistant" &&
+                message.sources &&
+                message.sources.length > 0 && (
+                  <div className="space-y-2 pl-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Sources:
+                    </p>
+                    {message.sources.map((source, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSourceClick(source.source_id)}
+                        className="cursor-pointer"
+                      >
+                        <SourceCitation source={source} />
+                      </div>
+                    ))}
+                  </div>
+                )}
             </div>
           </div>
         ))}
